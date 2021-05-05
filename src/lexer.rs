@@ -5,10 +5,13 @@ use thiserror::Error;
 
 use crate::run::{RuntimeConfig, SourceFile};
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum LexerError {
     #[error("Unexpected characters: {chars:?}")]
     UnexpectedChars { chars: String },
+
+    #[error("Unexpected value in character literal: {chars:?}")]
+    BadCharacterLiteral { chars: String },
 }
 
 /// Individual units of source code
@@ -50,12 +53,39 @@ impl fmt::Display for Token {
                 }
             }
             Token::Number => {}
-            Token::Character { value } => write!(f, "Character '{:?}'", value)?,
+            Token::Character { value } => write!(f, "Character {:?}", value)?,
             Token::String => (),
             Token::EOF => write!(f, "EOF")?,
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum ErrorToken {
+    Token(Token),
+    Error(LexerError),
+}
+
+impl fmt::Display for ErrorToken {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ErrorToken::Token(tok) => write!(f, "{}", tok),
+            ErrorToken::Error(err) => write!(f, "{}", err),
+        }
+    }
+}
+
+impl From<Token> for ErrorToken {
+    fn from(t: Token) -> Self {
+        ErrorToken::Token(t)
+    }
+}
+
+impl From<LexerError> for ErrorToken {
+    fn from(e: LexerError) -> Self {
+        ErrorToken::Error(e)
     }
 }
 
@@ -125,7 +155,7 @@ impl Lexer {
     pub fn lex(&mut self) -> Result<()> {
         loop {
             let token = self.get_token_loc()?;
-            if token.content == Token::EOF {
+            if token.content == ErrorToken::Token(Token::EOF) {
                 break;
             }
             println!("{}", token);
@@ -135,7 +165,7 @@ impl Lexer {
     }
 
     /// Get the next token and its source location
-    fn get_token_loc(&mut self) -> Result<WithLocation<Token>, LexerError> {
+    fn get_token_loc(&mut self) -> Result<WithLocation<ErrorToken>, LexerError> {
         // need to skip whitespace before recording line and column positions
         // otherwise the whitespace will be included in the token's source
         // location
@@ -158,19 +188,22 @@ impl Lexer {
     }
 
     /// Get the next token from the source
-    fn get_token(&mut self) -> Result<Token, LexerError> {
+    fn get_token(&mut self) -> Result<ErrorToken, LexerError> {
         self.skip_whitespace();
         self.start = self.current;
 
         let next = if let Some(next) = self.advance() {
             next
         } else {
-            return Ok(Token::EOF);
+            return Ok(Token::EOF.into());
         };
 
         // all parsers to try in order
-        const PARSERS: [fn(&mut Lexer, char) -> Option<Token>; 2] =
-            [Lexer::parse_identifier, Lexer::parse_boolean];
+        const PARSERS: [fn(&mut Lexer, char) -> Option<ErrorToken>; 3] = [
+            Lexer::parse_identifier,
+            Lexer::parse_boolean,
+            Lexer::parse_character,
+        ];
 
         let tok = PARSERS.iter().find_map(|f| f(self, next));
 
@@ -184,20 +217,26 @@ impl Lexer {
     }
 
     /// Parse a new identifier
-    fn parse_identifier(&mut self, next: char) -> Option<Token> {
+    fn parse_identifier(&mut self, next: char) -> Option<ErrorToken> {
         // peculiar identifiers  '+', '-', '...'
         if next == '+' || next == '-' {
-            return Some(Token::Identifier {
-                value: next.to_string(),
-            });
+            return Some(
+                Token::Identifier {
+                    value: next.to_string(),
+                }
+                .into(),
+            );
         }
 
         if next == '.' && self.peek(0) == Some('.') && self.peek(1) == Some('.') {
             self.advance();
             self.advance();
-            return Some(Token::Identifier {
-                value: "...".to_string(),
-            });
+            return Some(
+                Token::Identifier {
+                    value: "...".to_string(),
+                }
+                .into(),
+            );
         }
 
         // regular identifiers
@@ -205,7 +244,13 @@ impl Lexer {
             let mut ident = String::from(next);
 
             while let Some(ch) = self.peek(0) {
-                if self.is_initial(ch) || ch.is_ascii_digit() || "+-.@".contains(ch) {
+                let test = if self.config.unicode_identifiers {
+                    ch.is_numeric()
+                } else {
+                    ch.is_ascii_digit()
+                };
+
+                if test || self.is_initial(ch) || "+-.@".contains(ch) {
                     self.advance();
                     ident.push(ch);
                 } else {
@@ -213,24 +258,70 @@ impl Lexer {
                 }
             }
 
-            return Some(Token::Identifier { value: ident });
+            return Some(Token::Identifier { value: ident }.into());
         }
 
         None
     }
 
     /// Parse a boolean true or false
-    fn parse_boolean(&mut self, next: char) -> Option<Token> {
+    fn parse_boolean(&mut self, next: char) -> Option<ErrorToken> {
         // booleans
         let peek = self.peek(0);
         if next == '#' && (peek == Some('t') || peek == Some('f')) {
             self.advance();
-            return Some(Token::Boolean {
-                value: peek == Some('t'),
-            });
+            return Some(
+                Token::Boolean {
+                    value: peek == Some('t'),
+                }
+                .into(),
+            );
         }
 
         None
+    }
+
+    /// Parse a single character literal
+    fn parse_character(&mut self, next: char) -> Option<ErrorToken> {
+        if next != '#' || self.peek(0) != Some('\\') {
+            return None;
+        }
+
+        self.advance();
+
+        let mut content = String::new();
+        while let Some(char) = self.peek(0) {
+            if char.is_ascii_control() || char == ' ' {
+                break;
+            } else {
+                content.push(char);
+                self.advance();
+            }
+        }
+
+        if !content.is_ascii() {
+            return Some(LexerError::UnexpectedChars { chars: content }.into());
+        }
+
+        if content == "space" {
+            content.clear();
+            content.push(' ')
+        }
+        if content == "newline" {
+            content.clear();
+            content.push('\n')
+        }
+
+        if content.len() != 1 {
+            return Some(LexerError::BadCharacterLiteral { chars: content }.into());
+        }
+
+        Some(
+            Token::Character {
+                value: content.chars().next().unwrap(),
+            }
+            .into(),
+        )
     }
 
     // skips whitespace and comments that are not part of a token
