@@ -10,6 +10,7 @@ use thiserror::Error;
 
 use crate::run::{RuntimeConfig, SourceFile};
 
+mod info;
 mod lexer;
 mod run;
 
@@ -53,10 +54,26 @@ fn run() -> Result<()> {
         (author: crate_authors!())
         (about: crate_description!())
         (@arg input: +multiple "Input files to parse.  If not present uses stdin.")
-        (@arg eval: -e "Interpret the input as source code instead of file names")
-        (@arg strict: -s r#"Use strict mode, exactly as in R5RS."#)
+        (@arg eval: -e --eval "Interpret the input as source code instead of file names")
+        (@arg strict: -s --strict r#"Use strict mode, exactly as in R5RS."#)
+        (@subcommand info =>
+            (about: "Print internal documentation messages")
+            (@arg value: +takes_value +multiple "The documentation message to get"))
     )
     .get_matches();
+
+    // print documentation if requested
+    if let Some(matches) = matches.subcommand_matches("info") {
+        match matches.values_of("value") {
+            Some(values) => {
+                // if multiple inputs are entered assume they are words in a
+                // space separated string
+                info::info(Some(&values.collect::<Vec<_>>().join(" ")));
+            }
+            None => info::info(None),
+        }
+        return Ok(());
+    }
 
     let mut sources = vec![];
 
