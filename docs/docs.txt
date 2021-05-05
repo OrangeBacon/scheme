@@ -7,12 +7,17 @@
 # at the end of the file
 
 - Strict Mode
-Strict mode ensures exact R5RS compliance.
-Changes from R5RS when not in strict mode:
-* The definition of whitespace allows all unicode whitespace, not just spaces
+Strict mode ensures exact R5RS compliance, enabled by default.
+Disabling strict mode (using '-s') enables all extensions listed below.
+A single extension can be enabled using '-f <name>' or disabled using
+'-f no-<name>' for more customisation.  The feature flags are applied after
+the strict mode flag.
+* extended-whitespace:
+  The definition of whitespace allows all unicode whitespace, not just spaces
   and new lines.  (Note: particularly helpful on windows as this will allow
   carriage returns in source files).
-* Unicode identifiers are allowed, source files are interpreted as being in
+* unicode-identifiers:
+  Unicode identifiers are allowed, source files are interpreted as being in
   utf-8 and identifiers are expanded from starting with [a-z] to starting with
   any alphabetic character.  Identifiers are changed from being allowed to
   contain [a-z0-9] and symbols after the first character to any alphanumeric

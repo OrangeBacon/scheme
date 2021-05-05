@@ -183,8 +183,8 @@ impl Lexer {
                 Some(' ') | Some('\n') => {
                     self.advance();
                 }
-                Some(c) if !self.config.strict_mode && c.is_whitespace() => {
-
+                Some(c) if self.config.extended_whitespace && c.is_whitespace() => {
+                    self.advance();
                 }
                 _ => return,
             }
@@ -193,13 +193,17 @@ impl Lexer {
 
     /// Consume and return one character from the input
     fn advance(&mut self) -> Option<char> {
-        let res = self.source.get(self.current).copied();
-        self.current += 1;
-        self.column += 1;
+        let res = self.peek(0);
 
-        if res == Some('\n') {
-            self.line += 1;
-            self.column = 1;
+        // don't change positions if at EOF
+        if res.is_some() {
+            self.current += 1;
+            self.column += 1;
+
+            if res == Some('\n') {
+                self.line += 1;
+                self.column = 1;
+            }
         }
 
         res
