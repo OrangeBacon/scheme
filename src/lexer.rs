@@ -23,9 +23,9 @@ pub enum Token {
     CommaAt,
     Dot,
     Identifier { value: String },
-    Boolean,
+    Boolean { value: bool },
     Number,
-    Character,
+    Character { value: char },
     String,
     EOF,
 }
@@ -42,9 +42,15 @@ impl fmt::Display for Token {
             Token::CommaAt => write!(f, "Comma at ',@'")?,
             Token::Dot => write!(f, "Dot '.'")?,
             Token::Identifier { value } => write!(f, "Identifier {:?}", value)?,
-            Token::Boolean => {}
+            Token::Boolean { value } => {
+                if *value {
+                    write!(f, "Boolean #t")?
+                } else {
+                    write!(f, "Boolean #f")?
+                }
+            }
             Token::Number => {}
-            Token::Character => {}
+            Token::Character { value } => write!(f, "Character '{:?}'", value)?,
             Token::String => (),
             Token::EOF => write!(f, "EOF")?,
         }
@@ -130,6 +136,11 @@ impl Lexer {
 
     /// Get the next token and its source location
     fn get_token_loc(&mut self) -> Result<WithLocation<Token>, LexerError> {
+        // need to skip whitespace before recording line and column positions
+        // otherwise the whitespace will be included in the token's source
+        // location
+        self.skip_whitespace();
+
         let line = self.line;
         let column = self.column;
 
@@ -149,7 +160,6 @@ impl Lexer {
     /// Get the next token from the source
     fn get_token(&mut self) -> Result<Token, LexerError> {
         self.skip_whitespace();
-
         self.start = self.current;
 
         let next = if let Some(next) = self.advance() {
@@ -158,17 +168,14 @@ impl Lexer {
             return Ok(Token::EOF);
         };
 
-        // peculiar identifiers
-        if next == '+' || next == '-' {
-            return Ok(Token::Identifier {
-                value: next.to_string(),
-            });
-        }
+        // all parsers to try in order
+        const PARSERS: [fn(&mut Lexer, char) -> Option<Token>; 2] =
+            [Lexer::parse_identifier, Lexer::parse_boolean];
 
-        if next == '.' && self.peek(1) == Some('.') && self.peek(2) == Some('.') {
-            return Ok(Token::Identifier {
-                value: "...".to_string(),
-            });
+        let tok = PARSERS.iter().find_map(|f| f(self, next));
+
+        if let Some(tok) = tok {
+            return Ok(tok);
         }
 
         Err(LexerError::UnexpectedChars {
@@ -176,19 +183,89 @@ impl Lexer {
         })
     }
 
+    /// Parse a new identifier
+    fn parse_identifier(&mut self, next: char) -> Option<Token> {
+        // peculiar identifiers  '+', '-', '...'
+        if next == '+' || next == '-' {
+            return Some(Token::Identifier {
+                value: next.to_string(),
+            });
+        }
+
+        if next == '.' && self.peek(0) == Some('.') && self.peek(1) == Some('.') {
+            self.advance();
+            self.advance();
+            return Some(Token::Identifier {
+                value: "...".to_string(),
+            });
+        }
+
+        // regular identifiers
+        if self.is_initial(next) {
+            let mut ident = String::from(next);
+
+            while let Some(ch) = self.peek(0) {
+                if self.is_initial(ch) || ch.is_ascii_digit() || "+-.@".contains(ch) {
+                    self.advance();
+                    ident.push(ch);
+                } else {
+                    break;
+                }
+            }
+
+            return Some(Token::Identifier { value: ident });
+        }
+
+        None
+    }
+
+    /// Parse a boolean true or false
+    fn parse_boolean(&mut self, next: char) -> Option<Token> {
+        // booleans
+        let peek = self.peek(0);
+        if next == '#' && (peek == Some('t') || peek == Some('f')) {
+            self.advance();
+            return Some(Token::Boolean {
+                value: peek == Some('t'),
+            });
+        }
+
+        None
+    }
+
     // skips whitespace and comments that are not part of a token
     fn skip_whitespace(&mut self) {
         loop {
-            match self.peek(1) {
+            match self.peek(0) {
+                // default whitespace
                 Some(' ') | Some('\n') => {
                     self.advance();
                 }
+                // all whitespace
                 Some(c) if self.config.extended_whitespace && c.is_whitespace() => {
                     self.advance();
+                }
+                // comments
+                Some(';') => {
+                    self.advance();
+                    while self.peek(0) != Some('\n') {
+                        self.advance();
+                    }
                 }
                 _ => return,
             }
         }
+    }
+
+    /// is a character a valid letter for the start of an identifier
+    fn is_initial(&mut self, c: char) -> bool {
+        let res = if self.config.unicode_identifiers {
+            c.is_alphabetic()
+        } else {
+            c.is_ascii_alphabetic()
+        };
+
+        res || "!$%&*/:<=>?^_\"".contains(c)
     }
 
     /// Consume and return one character from the input
@@ -210,8 +287,8 @@ impl Lexer {
     }
 
     /// Try to get the next character from the input without consuming it.
-    /// count is the number of characters ahead to look, if count == 0, returns
-    /// the current character, 1 => next character, etc.
+    /// count is the number of characters ahead to look, if count == 0 => peek
+    /// count == 1 => peekNext
     fn peek(&self, count: usize) -> Option<char> {
         self.source.get(self.current + count).copied()
     }
