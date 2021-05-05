@@ -17,8 +17,8 @@ the strict mode flag.
   and new lines.  (Note: particularly helpful on windows as this will allow
   carriage returns in source files).
 * unicode-identifiers:
-  Unicode identifiers are allowed, source files are interpreted as being in
-  utf-8 and identifiers are expanded from starting with [a-z] to starting with
-  any alphabetic character.  Identifiers are changed from being allowed to
-  contain [a-z0-9] and symbols after the first character to any alphanumeric
-  unicode character and the same set of symbols.
+  Unicode identifiers are allowed in identifiers.  Identifiers are expanded
+  from starting with [a-z] to starting with any alphabetic character.
+  Identifiers are changed from being allowed to contain [a-z0-9] and symbols
+  after the first character to any alphanumeric unicode character and the same
+  set of symbols.

@@ -12,6 +12,12 @@ enum LexerError {
 
     #[error("Unexpected value in character literal: {chars:?}")]
     BadCharacterLiteral { chars: String },
+
+    #[error("Unexpected backslash in string literal")]
+    StringBackslash,
+
+    #[error("Non-terminated string literal")]
+    NonTerminatedString,
 }
 
 /// Individual units of source code
@@ -29,7 +35,7 @@ pub enum Token {
     Boolean { value: bool },
     Number,
     Character { value: char },
-    String,
+    String { value: String },
     EOF,
 }
 
@@ -54,7 +60,7 @@ impl fmt::Display for Token {
             }
             Token::Number => {}
             Token::Character { value } => write!(f, "Character {:?}", value)?,
-            Token::String => (),
+            Token::String { value } => write!(f, "String {:?}", value)?,
             Token::EOF => write!(f, "EOF")?,
         }
 
@@ -199,10 +205,12 @@ impl Lexer {
         };
 
         // all parsers to try in order
-        const PARSERS: [fn(&mut Lexer, char) -> Option<ErrorToken>; 3] = [
+        const PARSERS: [fn(&mut Lexer, char) -> Option<ErrorToken>; 5] = [
             Lexer::parse_identifier,
             Lexer::parse_boolean,
             Lexer::parse_character,
+            Lexer::parse_string,
+            Lexer::parse_symbol,
         ];
 
         let tok = PARSERS.iter().find_map(|f| f(self, next));
@@ -291,16 +299,15 @@ impl Lexer {
 
         let mut content = String::new();
         while let Some(char) = self.peek(0) {
-            if char.is_ascii_control() || char == ' ' {
+            if char.is_ascii_whitespace()
+                || ("\"();".contains(char) && !content.is_empty())
+                || (self.config.extended_whitespace && char.is_whitespace())
+            {
                 break;
             } else {
                 content.push(char);
                 self.advance();
             }
-        }
-
-        if !content.is_ascii() {
-            return Some(LexerError::UnexpectedChars { chars: content }.into());
         }
 
         if content == "space" {
@@ -322,6 +329,64 @@ impl Lexer {
             }
             .into(),
         )
+    }
+
+    // Parse a string literal
+    fn parse_string(&mut self, next: char) -> Option<ErrorToken> {
+        if next != '"' {
+            return None;
+        }
+
+        let mut literal = String::new();
+        while let Some(char) = self.peek(0) {
+            // interpret escape sequences
+            if char == '\\' && self.peek(1) == Some('"') {
+                literal.push('"');
+                self.advance();
+                self.advance();
+            } else if char == '\\' && self.peek(1) == Some('\\') {
+                literal.push('\\');
+                self.advance();
+                self.advance();
+            } else if char == '\\' {
+                return Some(LexerError::StringBackslash.into());
+            } else if char == '"' {
+                break;
+            } else {
+                literal.push(char);
+                self.advance();
+            }
+        }
+
+        if self.advance() != Some('"') {
+            return Some(LexerError::NonTerminatedString.into());
+        }
+
+        return Some(Token::String { value: literal }.into());
+    }
+
+    fn parse_symbol(&mut self, next: char) -> Option<ErrorToken> {
+        let tok = match next {
+            '(' => Token::LeftParen,
+            ')' => Token::RightParen,
+            '\'' => Token::Quote,
+            '`' => Token::BackQuote,
+            '.' => Token::Dot,
+
+            '#' if self.peek(0) == Some('(') => {
+                self.advance();
+                Token::VecStart
+            }
+            ',' if self.peek(0) == Some('@') => {
+                self.advance();
+                Token::CommaAt
+            }
+            ',' => Token::Comma,
+
+            _ => return None,
+        };
+
+        Some(tok.into())
     }
 
     // skips whitespace and comments that are not part of a token
@@ -356,7 +421,7 @@ impl Lexer {
             c.is_ascii_alphabetic()
         };
 
-        res || "!$%&*/:<=>?^_\"".contains(c)
+        res || "!$%&*/:<=>?^_~".contains(c)
     }
 
     /// Consume and return one character from the input
