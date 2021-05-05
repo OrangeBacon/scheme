@@ -8,6 +8,11 @@ use anyhow::Result;
 use clap::{clap_app, crate_authors, crate_description, crate_version};
 use thiserror::Error;
 
+use crate::run::{RuntimeConfig, SourceFile};
+
+mod lexer;
+mod run;
+
 /// Errors encountered while interpreting the input arguments
 #[derive(Debug, Error)]
 enum InputError {
@@ -16,6 +21,9 @@ enum InputError {
 
     #[error("No input was provided")]
     NoInput,
+
+    #[error("All sources provided were empty")]
+    AllEmpty,
 }
 
 /// New type wrapper to provide display impl
@@ -32,11 +40,6 @@ impl Display for IoErrorVec {
     }
 }
 
-struct SourceFile {
-    path: Option<String>,
-    content: String,
-}
-
 fn main() {
     if let Err(e) = run() {
         println!("Error:\n{}", e);
@@ -51,6 +54,7 @@ fn run() -> Result<()> {
         (about: crate_description!())
         (@arg input: +multiple "Input files to parse.  If not present uses stdin.")
         (@arg eval: -e "Interpret the input as source code instead of file names")
+        (@arg strict: -s r#"Use strict mode, exactly as in R5RS."#)
     )
     .get_matches();
 
@@ -100,9 +104,19 @@ fn run() -> Result<()> {
     }
 
     // no input provided, so nothing to do
-    if sources.is_empty() || sources.iter().all(|s| s.content.is_empty()) {
+    if sources.is_empty() {
         Err(InputError::NoInput)?;
     }
+
+    if sources.iter().all(|s| s.content.is_empty()) {
+        Err(InputError::AllEmpty)?;
+    }
+
+    let config = RuntimeConfig {
+        strict_mode: matches.is_present("strict"),
+    };
+
+    run::run(sources, config)?;
 
     Ok(())
 }
