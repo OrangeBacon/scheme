@@ -112,9 +112,10 @@ fn run() -> Result<()> {
             }
 
             if !errors.is_empty() {
-                Err(InputError::FileError {
+                return Err(InputError::FileError {
                     files: IoErrorVec(errors),
-                })?;
+                }
+                .into());
             }
         }
     } else {
@@ -123,11 +124,11 @@ fn run() -> Result<()> {
 
     // no input provided, so nothing to do
     if sources.is_empty() {
-        Err(InputError::NoInput)?;
+        return Err(InputError::NoInput.into());
     }
 
     if sources.iter().all(|s| s.content.is_empty()) {
-        Err(InputError::AllEmpty)?;
+        return Err(InputError::AllEmpty.into());
     }
 
     // get the base configuration

@@ -1,4 +1,4 @@
-const INFO: &'static str = include_str!("../docs/docs.txt");
+const INFO: &str = include_str!("../docs/docs.txt");
 
 pub fn info(input: Option<&str>) {
     let info = parse_docs();
@@ -18,7 +18,7 @@ pub fn info(input: Option<&str>) {
                 input,
                 info.len()
             );
-        } else if idx <= 0 {
+        } else if idx == 0 {
             println!("Unable to get documentation entry 0, minimum value is 1");
         } else {
             print_info(&info[idx - 1]);
@@ -48,7 +48,7 @@ pub fn info(input: Option<&str>) {
         })
         .fold(
             // find the largest similarity
-            (0, 0. / 0.),
+            (0, f64::NAN),
             |acc, (idx, sim)| {
                 if sim > acc.1 || acc.1.is_nan() {
                     (idx, sim)

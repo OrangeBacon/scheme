@@ -54,7 +54,7 @@ pub enum Token {
     Number { value: NumericLiteral },
     Character { value: char },
     String { value: String },
-    EOF,
+    Eof,
 }
 
 /// Data required for storing a number
@@ -89,6 +89,7 @@ impl Number {
     const ZERO: Number = Number::Integer(Cow::Borrowed("0"));
 }
 
+/// Radices (bases) available for numeric literals
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum Radix {
     Binary,
@@ -145,13 +146,14 @@ impl fmt::Display for Token {
             }
             Token::Character { value } => write!(f, "Character {:?}", value)?,
             Token::String { value } => write!(f, "String {:?}", value)?,
-            Token::EOF => write!(f, "EOF")?,
+            Token::Eof => write!(f, "EOF")?,
         }
 
         Ok(())
     }
 }
 
+/// Wrapper type to provide errors or tokens
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum ErrorToken {
     Token(Token),
@@ -225,10 +227,7 @@ pub struct Lexer {
 impl Lexer {
     /// Create a new lexer
     pub fn new(source: SourceFile, config: RuntimeConfig) -> Self {
-        let path = match source.path {
-            Some(s) => Some(Rc::new(s)),
-            None => None,
-        };
+        let path = source.path.map(Rc::new);
 
         Self {
             config,
@@ -245,7 +244,7 @@ impl Lexer {
     pub fn lex(&mut self) -> Result<()> {
         loop {
             let token = self.get_token_loc()?;
-            if token.content == ErrorToken::Token(Token::EOF) {
+            if token.content == ErrorToken::Token(Token::Eof) {
                 break;
             }
             println!("{}", token);
@@ -285,7 +284,7 @@ impl Lexer {
         let next = if let Some(next) = self.advance() {
             next
         } else {
-            return Ok(Token::EOF.into());
+            return Ok(Token::Eof.into());
         };
 
         // all parsers to try in order
@@ -413,8 +412,7 @@ impl Lexer {
             }
         }
 
-        // this is not actually a loop, is just so break and return can be used
-        while next == '#' {
+        if next == '#' {
             let mut peek = self.peek(0)?;
             number.radix = match_radix(peek);
             number.exact = match_exactness(peek);
@@ -425,32 +423,28 @@ impl Lexer {
                     Some(c) => c,
                     None => return Some(LexerError::NonTerminatedNumber.into()),
                 };
-                if next != '#' {
-                    break;
-                }
+                if next == '#' {
+                    peek = match self.advance() {
+                        Some(c) => c,
+                        None => return Some(LexerError::NonTerminatedNumber.into()),
+                    };
 
-                peek = match self.advance() {
-                    Some(c) => c,
-                    None => return Some(LexerError::NonTerminatedNumber.into()),
-                };
+                    if number.radix == None {
+                        number.radix = match_radix(peek);
+                    } else {
+                        number.exact = match_exactness(peek);
+                    }
 
-                if number.radix == None {
-                    number.radix = match_radix(peek);
-                } else {
-                    number.exact = match_exactness(peek);
-                }
+                    if number.exact == None || number.radix == None {
+                        return Some(LexerError::InvalidNumericPrefix.into());
+                    }
 
-                if number.exact == None || number.radix == None {
-                    return Some(LexerError::InvalidNumericPrefix.into());
-                }
-
-                next = match self.advance() {
-                    Some(c) => c,
-                    None => return Some(LexerError::NonTerminatedNumber.into()),
+                    next = match self.advance() {
+                        Some(c) => c,
+                        None => return Some(LexerError::NonTerminatedNumber.into()),
+                    }
                 }
             }
-
-            break;
         }
 
         // parse the complex number after the prefix
@@ -532,7 +526,7 @@ impl Lexer {
             return Some(LexerError::InvalidNumericTerminator.into());
         }
 
-        return Some(Token::Number { value: number }.into());
+        Some(Token::Number { value: number }.into())
     }
 
     fn parse_real(
@@ -556,7 +550,7 @@ impl Lexer {
         if next == '.' {
             // decimal number beginning with a dot
             if number.radix != Some(Radix::Decimal) && number.radix != None {
-                return Err(LexerError::DecimalRadix.into());
+                return Err(LexerError::DecimalRadix);
             }
 
             num.push('.');
@@ -598,14 +592,14 @@ impl Lexer {
                     part2.push('#');
                     self.advance();
                 }
-                return Ok(Number::Fraction(num.into(), part2.into()));
+                Ok(Number::Fraction(num.into(), part2.into()))
             }
             Some('e' | 's' | 'f' | 'd' | 'l') => {
                 // number with exponential suffix
                 // does not consume the peeked character as that is
                 // performed inside the suffix parsing
                 self.decimal_suffix(&mut num)?;
-                return Ok(Number::Decimal(num.into()));
+                Ok(Number::Decimal(num.into()))
             }
             Some('#') => {
                 while self.peek(0) == Some('#') {
@@ -629,7 +623,7 @@ impl Lexer {
 
                 self.decimal_suffix(&mut num)?;
 
-                return Ok(Number::Decimal(num.into()));
+                Ok(Number::Decimal(num.into()))
             }
             Some('.') => {
                 // <digit 10>+ . <digit 10>* #* <suffix>
@@ -655,9 +649,9 @@ impl Lexer {
 
                 self.decimal_suffix(&mut num)?;
 
-                return Ok(Number::Decimal(num.into()));
+                Ok(Number::Decimal(num.into()))
             }
-            _ => return Ok(Number::Integer(num.into())),
+            _ => Ok(Number::Integer(num.into())),
         }
     }
 
@@ -807,7 +801,7 @@ impl Lexer {
             return Some(LexerError::NonTerminatedString.into());
         }
 
-        return Some(Token::String { value: literal }.into());
+        Some(Token::String { value: literal }.into())
     }
 
     fn parse_symbol(&mut self, next: char) -> Option<ErrorToken> {
@@ -906,9 +900,6 @@ impl Lexer {
 
     /// Convenience method to clone the path rc if required
     fn get_path(&self) -> Option<Rc<String>> {
-        match &self.path {
-            Some(str) => Some(Rc::clone(str)),
-            None => None,
-        }
+        self.path.as_ref().map(|str| Rc::clone(str))
     }
 }
