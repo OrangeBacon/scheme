@@ -311,7 +311,7 @@ impl Lexer {
     /// Parse a new identifier
     fn parse_identifier(&mut self, next: char) -> Option<ErrorToken> {
         // peculiar identifiers  '+', '-', '...'
-        if (next == '+' || next == '-') && self.is_delimiter(self.peek(0)) {
+        if matches!(next, '+' | '-') && self.is_delimiter(self.peek(0)) {
             return Some(
                 Token::Identifier {
                     value: next.to_string(),
@@ -321,8 +321,8 @@ impl Lexer {
         }
 
         if next == '.'
-            && self.peek(0) == Some('.')
-            && self.peek(1) == Some('.')
+            && self.peek_is(0, ".")
+            && self.peek_is(1, ".")
             && self.is_delimiter(self.peek(2))
         {
             self.advance();
@@ -366,13 +366,11 @@ impl Lexer {
 
     /// Parse a boolean true or false
     fn parse_boolean(&mut self, next: char) -> Option<ErrorToken> {
-        // booleans
-        let peek = self.peek(0);
-        if next == '#' && (peek == Some('t') || peek == Some('f')) {
+        if next == '#' && self.peek_is(0, "tf") {
             self.advance();
             return Some(
                 Token::Boolean {
-                    value: peek == Some('t'),
+                    value: self.peek_is(0, "t"),
                 }
                 .into(),
             );
@@ -448,7 +446,7 @@ impl Lexer {
         }
 
         // parse the complex number after the prefix
-        if (next == '+' || next == '-') && self.peek(0) == Some('i') {
+        if (next == '+' || next == '-') && self.peek_is(0, "iI") {
             // either +i or -i
             self.advance();
 
@@ -489,7 +487,7 @@ impl Lexer {
                 };
             }
             Some(val @ ('+' | '-')) => {
-                if self.peek(1) == Some('i') {
+                if self.peek_is(1, "iI") {
                     // <real R> [+-] i
                     self.advance();
                     self.advance();
@@ -507,7 +505,7 @@ impl Lexer {
                         Ok(num) => num,
                         Err(err) => return Some(err.into()),
                     };
-                    if self.peek(0) != Some('i') {
+                    if !self.peek_is(0, "iI") {
                         return Some(LexerError::NonTerminatedNumber.into());
                     }
                     self.advance();
@@ -541,7 +539,7 @@ impl Lexer {
             None => return Err(LexerError::NonTerminatedNumber),
         };
 
-        if next == '+' || next == '-' {
+        if matches!(next, '+' | '-') {
             *started = true;
             num.push(next);
             next = self.advance().ok_or(LexerError::NonTerminatedNumber)?;
@@ -558,7 +556,7 @@ impl Lexer {
             self.unsigned_integer(number.radix, &mut num)?;
             *started = true;
 
-            while self.peek(0) == Some('#') {
+            while self.peek_is(0, "#") {
                 num.push('#');
                 self.advance();
             }
@@ -588,7 +586,7 @@ impl Lexer {
                 self.advance();
                 let mut part2 = String::new();
                 self.unsigned_integer(number.radix, &mut part2)?;
-                while self.peek(0) == Some('#') {
+                while self.peek_is(0, "#") {
                     part2.push('#');
                     self.advance();
                 }
@@ -602,12 +600,12 @@ impl Lexer {
                 Ok(Number::Decimal(num.into()))
             }
             Some('#') => {
-                while self.peek(0) == Some('#') {
+                while self.peek_is(0, "#") {
                     num.push('#');
                     self.advance();
                 }
 
-                if self.peek(0) != Some('.') {
+                if !self.peek_is(0, ".") {
                     // found <uinteger R>
                     return Ok(Number::Integer(num.into()));
                 }
@@ -616,7 +614,7 @@ impl Lexer {
                 self.advance();
                 num.push('.');
 
-                while self.peek(0) == Some('#') {
+                while self.peek_is(0, "#") {
                     num.push('#');
                     self.advance();
                 }
@@ -642,7 +640,7 @@ impl Lexer {
                     self.advance();
                 }
 
-                while self.peek(0) == Some('#') {
+                while self.peek_is(0, "#") {
                     num.push('#');
                     self.advance();
                 }
@@ -672,7 +670,7 @@ impl Lexer {
 
         let mut next = self.advance().ok_or(LexerError::NonTerminatedNumber)?;
 
-        if next == '+' || next == '-' {
+        if matches!(next, '+' | '-') {
             num.push(next);
             next = self.advance().ok_or(LexerError::NonTerminatedNumber)?;
         }
@@ -749,11 +747,12 @@ impl Lexer {
             }
         }
 
-        if content == "space" {
+        let lower = content.to_lowercase();
+        if lower == "space" {
             content.clear();
             content.push(' ')
         }
-        if content == "newline" {
+        if lower == "newline" {
             content.clear();
             content.push('\n')
         }
@@ -776,19 +775,24 @@ impl Lexer {
             return None;
         }
 
+        // ignore errors in escape sequences until the end of the string is
+        // found, means more accurate error recovery
+        let mut has_error = false;
+
         let mut literal = String::new();
         while let Some(char) = self.peek(0) {
             // interpret escape sequences
-            if char == '\\' && self.peek(1) == Some('"') {
+            if char == '\\' && self.peek_is(1, "\"") {
                 literal.push('"');
                 self.advance();
                 self.advance();
-            } else if char == '\\' && self.peek(1) == Some('\\') {
+            } else if char == '\\' && self.peek_is(1, "\\") {
                 literal.push('\\');
                 self.advance();
                 self.advance();
             } else if char == '\\' {
-                return Some(LexerError::StringBackslash.into());
+                has_error = true;
+                self.advance();
             } else if char == '"' {
                 break;
             } else {
@@ -798,10 +802,12 @@ impl Lexer {
         }
 
         if self.advance() != Some('"') {
-            return Some(LexerError::NonTerminatedString.into());
+            Some(LexerError::NonTerminatedString.into())
+        } else if has_error {
+            Some(LexerError::StringBackslash.into())
+        } else {
+            Some(Token::String { value: literal }.into())
         }
-
-        Some(Token::String { value: literal }.into())
     }
 
     fn parse_symbol(&mut self, next: char) -> Option<ErrorToken> {
@@ -870,6 +876,15 @@ impl Lexer {
                 || (self.config.extended_whitespace && val.is_whitespace())
         } else {
             true
+        }
+    }
+
+    /// returns if the count 'th peeked character is in val
+    fn peek_is(&self, count: usize, val: &str) -> bool {
+        if let Some(peek) = self.peek(count) {
+            val.contains(peek)
+        } else {
+            false
         }
     }
 
