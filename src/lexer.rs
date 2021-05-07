@@ -1,4 +1,4 @@
-use std::{fmt, rc::Rc};
+use std::{borrow::Cow, fmt, rc::Rc};
 
 use anyhow::Result;
 use thiserror::Error;
@@ -18,6 +18,24 @@ enum LexerError {
 
     #[error("Non-terminated string literal")]
     NonTerminatedString,
+
+    #[error("Non-terminated numeric literal")]
+    NonTerminatedNumber,
+
+    #[error("Invalid prefix in numeric literal")]
+    InvalidNumericPrefix,
+
+    #[error("Decimal numbers only supported in base 10")]
+    DecimalRadix,
+
+    #[error("Invalid character in identifier")]
+    InvalidIdentifier,
+
+    #[error("Invalid character in decimal exponential suffix")]
+    InvalidExponential,
+
+    #[error("Invalid character following numeric literal")]
+    InvalidNumericTerminator,
 }
 
 /// Individual units of source code
@@ -33,10 +51,50 @@ pub enum Token {
     Dot,
     Identifier { value: String },
     Boolean { value: bool },
-    Number,
+    Number { value: NumericLiteral },
     Character { value: char },
     String { value: String },
     EOF,
+}
+
+/// Data required for storing a number
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NumericLiteral {
+    radix: Option<Radix>,
+    exact: Option<bool>,
+    polar_form: bool,
+    real: Number,
+    imaginary: Number,
+}
+
+/// A Single numeric component
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Number {
+    Decimal(Cow<'static, str>),
+    Integer(Cow<'static, str>),
+    Fraction(Cow<'static, str>, Cow<'static, str>),
+}
+
+impl fmt::Display for Number {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Number::Decimal(val) => write!(f, "Decimal({})", val),
+            Number::Integer(val) => write!(f, "Integer({})", val),
+            Number::Fraction(num, denom) => write!(f, "Fraction({} / {})", num, denom),
+        }
+    }
+}
+
+impl Number {
+    const ZERO: Number = Number::Integer(Cow::Borrowed("0"));
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Radix {
+    Binary,
+    Octal,
+    Decimal,
+    Hexadecimal,
 }
 
 impl fmt::Display for Token {
@@ -58,7 +116,33 @@ impl fmt::Display for Token {
                     write!(f, "Boolean #f")?
                 }
             }
-            Token::Number => {}
+            Token::Number {
+                value:
+                    NumericLiteral {
+                        exact,
+                        radix,
+                        real,
+                        imaginary,
+                        polar_form,
+                    },
+            } => {
+                if *exact == Some(true) {
+                    write!(f, "#e")?;
+                } else if *exact == Some(false) {
+                    write!(f, "#i")?;
+                }
+                match radix {
+                    Some(Radix::Binary) => write!(f, "#b")?,
+                    Some(Radix::Octal) => write!(f, "#o")?,
+                    Some(Radix::Hexadecimal) => write!(f, "#x")?,
+                    _ => (),
+                }
+                if *polar_form {
+                    write!(f, "Number({} @ {})", real, imaginary)?;
+                } else {
+                    write!(f, "Number({} + {}i)", real, imaginary)?;
+                }
+            }
             Token::Character { value } => write!(f, "Character {:?}", value)?,
             Token::String { value } => write!(f, "String {:?}", value)?,
             Token::EOF => write!(f, "EOF")?,
@@ -205,9 +289,10 @@ impl Lexer {
         };
 
         // all parsers to try in order
-        const PARSERS: [fn(&mut Lexer, char) -> Option<ErrorToken>; 5] = [
+        const PARSERS: [fn(&mut Lexer, char) -> Option<ErrorToken>; 6] = [
             Lexer::parse_identifier,
             Lexer::parse_boolean,
+            Lexer::parse_number,
             Lexer::parse_character,
             Lexer::parse_string,
             Lexer::parse_symbol,
@@ -227,7 +312,7 @@ impl Lexer {
     /// Parse a new identifier
     fn parse_identifier(&mut self, next: char) -> Option<ErrorToken> {
         // peculiar identifiers  '+', '-', '...'
-        if next == '+' || next == '-' {
+        if (next == '+' || next == '-') && self.is_delimiter(self.peek(0)) {
             return Some(
                 Token::Identifier {
                     value: next.to_string(),
@@ -236,7 +321,11 @@ impl Lexer {
             );
         }
 
-        if next == '.' && self.peek(0) == Some('.') && self.peek(1) == Some('.') {
+        if next == '.'
+            && self.peek(0) == Some('.')
+            && self.peek(1) == Some('.')
+            && self.is_delimiter(self.peek(2))
+        {
             self.advance();
             self.advance();
             return Some(
@@ -266,6 +355,10 @@ impl Lexer {
                 }
             }
 
+            if !self.is_delimiter(self.peek(0)) {
+                return Some(LexerError::InvalidIdentifier.into());
+            }
+
             return Some(Token::Identifier { value: ident }.into());
         }
 
@@ -287,6 +380,358 @@ impl Lexer {
         }
 
         None
+    }
+
+    /// Parse any kind of generic numeric literal
+    fn parse_number(&mut self, mut next: char) -> Option<ErrorToken> {
+        let mut number = NumericLiteral {
+            radix: None,
+            exact: None,
+            polar_form: false,
+            real: Number::ZERO,
+            imaginary: Number::ZERO,
+        };
+
+        let mut started = false;
+
+        // prefixes
+        fn match_exactness(ch: char) -> Option<bool> {
+            match ch {
+                'e' | 'E' => Some(true),
+                'i' | 'I' => Some(false),
+                _ => None,
+            }
+        }
+
+        fn match_radix(ch: char) -> Option<Radix> {
+            match ch {
+                'b' | 'B' => Some(Radix::Binary),
+                'o' | 'O' => Some(Radix::Octal),
+                'd' | 'D' => Some(Radix::Decimal),
+                'x' | 'X' => Some(Radix::Hexadecimal),
+                _ => None,
+            }
+        }
+
+        // this is not actually a loop, is just so break and return can be used
+        while next == '#' {
+            let mut peek = self.peek(0)?;
+            number.radix = match_radix(peek);
+            number.exact = match_exactness(peek);
+
+            if number.radix != None || number.exact != None {
+                self.advance();
+                next = match self.advance() {
+                    Some(c) => c,
+                    None => return Some(LexerError::NonTerminatedNumber.into()),
+                };
+                if next != '#' {
+                    break;
+                }
+
+                peek = match self.advance() {
+                    Some(c) => c,
+                    None => return Some(LexerError::NonTerminatedNumber.into()),
+                };
+
+                if number.radix == None {
+                    number.radix = match_radix(peek);
+                } else {
+                    number.exact = match_exactness(peek);
+                }
+
+                if number.exact == None || number.radix == None {
+                    return Some(LexerError::InvalidNumericPrefix.into());
+                }
+
+                next = match self.advance() {
+                    Some(c) => c,
+                    None => return Some(LexerError::NonTerminatedNumber.into()),
+                }
+            }
+
+            break;
+        }
+
+        // parse the complex number after the prefix
+        if (next == '+' || next == '-') && self.peek(0) == Some('i') {
+            // either +i or -i
+            self.advance();
+
+            if next == '+' {
+                number.imaginary = Number::Integer("1".into());
+            } else {
+                number.imaginary = Number::Integer("-1".into());
+            }
+
+            if !self.is_delimiter(self.peek(0)) {
+                return Some(LexerError::InvalidNumericTerminator.into());
+            }
+
+            return Some(Token::Number { value: number }.into());
+        }
+
+        let first = match self.parse_real(&number, &mut started, Some(next)) {
+            Ok(num) => num,
+            Err(err) => {
+                if started {
+                    return Some(err.into());
+                } else {
+                    return None;
+                }
+            }
+        };
+
+        match self.peek(0) {
+            Some('@') => {
+                // polar form complex number
+                number.polar_form = true;
+                self.advance();
+                number.real = first;
+                let next = self.advance();
+                number.imaginary = match self.parse_real(&number, &mut started, next) {
+                    Ok(num) => num,
+                    Err(err) => return Some(err.into()),
+                };
+            }
+            Some(val @ ('+' | '-')) => {
+                if self.peek(1) == Some('i') {
+                    // <real R> [+-] i
+                    self.advance();
+                    self.advance();
+                    number.real = first;
+                    if val == '+' {
+                        number.imaginary = Number::Integer("1".into());
+                    } else {
+                        number.imaginary = Number::Integer("-1".into());
+                    }
+                } else {
+                    // <real R> [+-] <ureal R> i
+                    number.real = first;
+                    let next = self.advance();
+                    number.imaginary = match self.parse_real(&number, &mut started, next) {
+                        Ok(num) => num,
+                        Err(err) => return Some(err.into()),
+                    };
+                    if self.peek(0) != Some('i') {
+                        return Some(LexerError::NonTerminatedNumber.into());
+                    }
+                    self.advance();
+                }
+            }
+            Some('i') => {
+                // [+-] <ureal R> i
+                self.advance();
+                number.real = Number::ZERO;
+                number.imaginary = first;
+            }
+            _ => number.real = first,
+        }
+
+        if !self.is_delimiter(self.peek(0)) {
+            return Some(LexerError::InvalidNumericTerminator.into());
+        }
+
+        return Some(Token::Number { value: number }.into());
+    }
+
+    fn parse_real(
+        &mut self,
+        number: &NumericLiteral,
+        started: &mut bool,
+        next: Option<char>,
+    ) -> Result<Number, LexerError> {
+        let mut num = String::new();
+        let mut next = match next {
+            Some(ch) => ch,
+            None => return Err(LexerError::NonTerminatedNumber),
+        };
+
+        if next == '+' || next == '-' {
+            *started = true;
+            num.push(next);
+            next = self.advance().ok_or(LexerError::NonTerminatedNumber)?;
+        }
+
+        if next == '.' {
+            // decimal number beginning with a dot
+            if number.radix != Some(Radix::Decimal) && number.radix != None {
+                return Err(LexerError::DecimalRadix.into());
+            }
+
+            num.push('.');
+
+            self.unsigned_integer(number.radix, &mut num)?;
+            *started = true;
+
+            while self.peek(0) == Some('#') {
+                num.push('#');
+                self.advance();
+            }
+
+            self.decimal_suffix(&mut num)?;
+
+            return Ok(Number::Decimal(num.into()));
+        }
+
+        if !Self::digits(number.radix).contains(next) {
+            return Err(LexerError::NonTerminatedNumber);
+        }
+        num.push(next);
+        *started = true;
+
+        while let Some(ch) = self.peek(0) {
+            if !Self::digits(number.radix).contains(ch) {
+                break;
+            }
+            num.push(ch);
+            self.advance();
+        }
+
+        match self.peek(0) {
+            Some('/') => {
+                // fractional number
+                self.advance();
+                let mut part2 = String::new();
+                self.unsigned_integer(number.radix, &mut part2)?;
+                while self.peek(0) == Some('#') {
+                    part2.push('#');
+                    self.advance();
+                }
+                return Ok(Number::Fraction(num.into(), part2.into()));
+            }
+            Some('e' | 's' | 'f' | 'd' | 'l') => {
+                // number with exponential suffix
+                // does not consume the peeked character as that is
+                // performed inside the suffix parsing
+                self.decimal_suffix(&mut num)?;
+                return Ok(Number::Decimal(num.into()));
+            }
+            Some('#') => {
+                while self.peek(0) == Some('#') {
+                    num.push('#');
+                    self.advance();
+                }
+
+                if self.peek(0) != Some('.') {
+                    // found <uinteger R>
+                    return Ok(Number::Integer(num.into()));
+                }
+
+                // <digit 10>+ #+ . #* <suffix>
+                self.advance();
+                num.push('.');
+
+                while self.peek(0) == Some('#') {
+                    num.push('#');
+                    self.advance();
+                }
+
+                self.decimal_suffix(&mut num)?;
+
+                return Ok(Number::Decimal(num.into()));
+            }
+            Some('.') => {
+                // <digit 10>+ . <digit 10>* #* <suffix>
+                self.advance();
+                num.push('.');
+
+                if number.radix != Some(Radix::Decimal) && number.radix != None {
+                    return Err(LexerError::DecimalRadix);
+                }
+
+                while let Some(ch) = self.peek(0) {
+                    if !Self::digits(Some(Radix::Decimal)).contains(ch) {
+                        break;
+                    }
+                    num.push(ch);
+                    self.advance();
+                }
+
+                while self.peek(0) == Some('#') {
+                    num.push('#');
+                    self.advance();
+                }
+
+                self.decimal_suffix(&mut num)?;
+
+                return Ok(Number::Decimal(num.into()));
+            }
+            _ => return Ok(Number::Integer(num.into())),
+        }
+    }
+
+    /// Parse a single decimal prefix
+    fn decimal_suffix(&mut self, num: &mut String) -> Result<(), LexerError> {
+        let peek = match self.peek(0) {
+            Some(peek) => {
+                if !"esfdl".contains(peek) {
+                    return Ok(());
+                }
+                peek
+            }
+            None => return Ok(()),
+        };
+
+        num.push(peek);
+        self.advance();
+
+        let mut next = self.advance().ok_or(LexerError::NonTerminatedNumber)?;
+
+        if next == '+' || next == '-' {
+            num.push(next);
+            next = self.advance().ok_or(LexerError::NonTerminatedNumber)?;
+        }
+
+        if !"0123456789".contains(next) {
+            return Err(LexerError::InvalidExponential);
+        }
+        num.push(next);
+
+        while let Some(val) = self.peek(0) {
+            if "0123456789".contains(val) {
+                num.push(val);
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn unsigned_integer(
+        &mut self,
+        radix: Option<Radix>,
+        num: &mut String,
+    ) -> Result<(), LexerError> {
+        if let Some(ch) = self.peek(0) {
+            if !Self::digits(radix).contains(ch) {
+                return Err(LexerError::NonTerminatedNumber);
+            }
+            num.push(ch);
+            self.advance();
+        }
+
+        while let Some(ch) = self.peek(0) {
+            if !Self::digits(radix).contains(ch) {
+                break;
+            }
+            num.push(ch);
+            self.advance();
+        }
+
+        Ok(())
+    }
+
+    /// Get the character set for the given number's radix
+    fn digits(radix: Option<Radix>) -> &'static str {
+        match radix {
+            Some(Radix::Binary) => "01",
+            Some(Radix::Octal) => "01234567",
+            Some(Radix::Hexadecimal) => "0123456789abcdefABCDEF",
+            Some(Radix::Decimal) | None => "0123456789",
+        }
     }
 
     /// Parse a single character literal
@@ -414,7 +859,7 @@ impl Lexer {
     }
 
     /// is a character a valid letter for the start of an identifier
-    fn is_initial(&mut self, c: char) -> bool {
+    fn is_initial(&self, c: char) -> bool {
         let res = if self.config.unicode_identifiers {
             c.is_alphabetic()
         } else {
@@ -422,6 +867,16 @@ impl Lexer {
         };
 
         res || "!$%&*/:<=>?^_~".contains(c)
+    }
+
+    /// is a character a valid delimiter between tokens
+    fn is_delimiter(&self, val: Option<char>) -> bool {
+        if let Some(val) = val {
+            matches!(val, '(' | ')' | '"' | ';' | ' ' | '\n')
+                || (self.config.extended_whitespace && val.is_whitespace())
+        } else {
+            true
+        }
     }
 
     /// Consume and return one character from the input
