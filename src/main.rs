@@ -12,6 +12,7 @@ use crate::run::{RuntimeConfig, SourceFile};
 
 mod info;
 mod lexer;
+mod parser;
 mod run;
 
 /// Errors encountered while interpreting the input arguments

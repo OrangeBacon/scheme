@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::run::{RuntimeConfig, SourceFile};
 
 #[derive(Debug, Error, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum LexerError {
+pub enum LexerError {
     #[error("Unexpected characters: {chars:?}")]
     UnexpectedChars { chars: String },
 
@@ -67,6 +67,37 @@ pub struct NumericLiteral {
     imaginary: Number,
 }
 
+impl fmt::Display for NumericLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let NumericLiteral {
+            exact,
+            radix,
+            real,
+            imaginary,
+            polar_form,
+        } = self;
+
+        if *exact == Some(true) {
+            write!(f, "#e")?;
+        } else if *exact == Some(false) {
+            write!(f, "#i")?;
+        }
+        match radix {
+            Some(Radix::Binary) => write!(f, "#b")?,
+            Some(Radix::Octal) => write!(f, "#o")?,
+            Some(Radix::Hexadecimal) => write!(f, "#x")?,
+            _ => (),
+        }
+        if *polar_form {
+            write!(f, "Number({} @ {})", real, imaginary)?;
+        } else {
+            write!(f, "Number({} + {}i)", real, imaginary)?;
+        }
+
+        Ok(())
+    }
+}
+
 /// A Single numeric component
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum Number {
@@ -117,33 +148,7 @@ impl fmt::Display for Token {
                     write!(f, "Boolean #f")?
                 }
             }
-            Token::Number {
-                value:
-                    NumericLiteral {
-                        exact,
-                        radix,
-                        real,
-                        imaginary,
-                        polar_form,
-                    },
-            } => {
-                if *exact == Some(true) {
-                    write!(f, "#e")?;
-                } else if *exact == Some(false) {
-                    write!(f, "#i")?;
-                }
-                match radix {
-                    Some(Radix::Binary) => write!(f, "#b")?,
-                    Some(Radix::Octal) => write!(f, "#o")?,
-                    Some(Radix::Hexadecimal) => write!(f, "#x")?,
-                    _ => (),
-                }
-                if *polar_form {
-                    write!(f, "Number({} @ {})", real, imaginary)?;
-                } else {
-                    write!(f, "Number({} + {}i)", real, imaginary)?;
-                }
-            }
+            Token::Number { value } => write!(f, "{}", value)?,
             Token::Character { value } => write!(f, "Character {:?}", value)?,
             Token::String { value } => write!(f, "String {:?}", value)?,
             Token::Eof => write!(f, "EOF")?,
@@ -155,7 +160,7 @@ impl fmt::Display for Token {
 
 /// Wrapper type to provide errors or tokens
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum ErrorToken {
+pub enum ErrorToken {
     Token(Token),
     Error(LexerError),
 }
@@ -184,11 +189,77 @@ impl From<LexerError> for ErrorToken {
 /// Wrapper providing source location information for a type
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WithLocation<T> {
+    /// The name of the source file the location is in
     file_name: Option<Rc<String>>,
+
+    /// The line number at the start of the location
     line: usize,
+
+    /// The column number at the start of the location
     column: usize,
+
+    /// The number of characters this location spans
     length: usize,
+
+    /// The character offset into the file that this span starts at
+    /// todo: line and column could probably be calculated from this value
+    /// if required, saves space + computing if they are not read
+    start_offset: usize,
+
+    /// The data that the span's source has been converted into
     content: T,
+}
+
+impl<T> WithLocation<T> {
+    /// Get the filename of the location
+    pub fn file_name(&self) -> Option<Rc<String>> {
+        match &self.file_name {
+            Some(val) => Some(Rc::clone(val)),
+            None => None,
+        }
+    }
+
+    /// Get a ref to the content stored
+    pub fn content(&self) -> &T {
+        &self.content
+    }
+
+    /// Separate the content from the location data
+    pub fn split(self) -> (T, WithLocation<()>) {
+        (
+            self.content,
+            WithLocation {
+                content: (),
+                file_name: self.file_name,
+                line: self.line,
+                column: self.column,
+                length: self.length,
+                start_offset: self.start_offset,
+            },
+        )
+    }
+
+    /// Join location data with different contents
+    pub fn join<U>(val: T, loc: WithLocation<U>) -> WithLocation<T> {
+        WithLocation {
+            content: val,
+            file_name: loc.file_name,
+            line: loc.line,
+            column: loc.column,
+            length: loc.length,
+            start_offset: loc.start_offset,
+        }
+    }
+
+    /// Extends the source location of self until it contains up to
+    /// the end of other.  If the spans are in different files, takes
+    /// the file name of the first span.
+    pub fn extend<U>(self, other: &WithLocation<U>) -> WithLocation<T> {
+        WithLocation {
+            length: other.start_offset + other.length - self.start_offset,
+            ..self
+        }
+    }
 }
 
 impl<T: fmt::Display> fmt::Display for WithLocation<T> {
@@ -240,21 +311,8 @@ impl Lexer {
         }
     }
 
-    /// Print all tokens in the source
-    pub fn lex(&mut self) -> Result<()> {
-        loop {
-            let token = self.get_token_loc()?;
-            if token.content == ErrorToken::Token(Token::Eof) {
-                break;
-            }
-            println!("{}", token);
-        }
-
-        Ok(())
-    }
-
     /// Get the next token and its source location
-    fn get_token_loc(&mut self) -> Result<WithLocation<ErrorToken>, LexerError> {
+    pub fn get_token_loc(&mut self) -> WithLocation<ErrorToken> {
         // need to skip whitespace before recording line and column positions
         // otherwise the whitespace will be included in the token's source
         // location
@@ -263,28 +321,29 @@ impl Lexer {
         let line = self.line;
         let column = self.column;
 
-        let tok = self.get_token()?;
+        let tok = self.get_token();
 
         let length = self.current - self.start;
 
-        Ok(WithLocation {
+        WithLocation {
             file_name: self.get_path(),
             line,
             column,
             length,
             content: tok,
-        })
+            start_offset: self.start,
+        }
     }
 
     /// Get the next token from the source
-    fn get_token(&mut self) -> Result<ErrorToken, LexerError> {
+    pub fn get_token(&mut self) -> ErrorToken {
         self.skip_whitespace();
         self.start = self.current;
 
         let next = if let Some(next) = self.advance() {
             next
         } else {
-            return Ok(Token::Eof.into());
+            return Token::Eof.into();
         };
 
         // all parsers to try in order
@@ -300,12 +359,13 @@ impl Lexer {
         let tok = PARSERS.iter().find_map(|f| f(self, next));
 
         if let Some(tok) = tok {
-            return Ok(tok);
+            return tok.into();
         }
 
-        Err(LexerError::UnexpectedChars {
+        LexerError::UnexpectedChars {
             chars: next.to_string(),
-        })
+        }
+        .into()
     }
 
     /// Parse a new identifier
@@ -366,11 +426,11 @@ impl Lexer {
 
     /// Parse a boolean true or false
     fn parse_boolean(&mut self, next: char) -> Option<ErrorToken> {
-        if next == '#' && self.peek_is(0, "tf") {
+        if next == '#' && self.peek_is(0, "tfTF") {
             self.advance();
             return Some(
                 Token::Boolean {
-                    value: self.peek_is(0, "t"),
+                    value: self.peek_is(0, "tT"),
                 }
                 .into(),
             );

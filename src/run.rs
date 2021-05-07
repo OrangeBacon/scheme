@@ -1,7 +1,7 @@
 use anyhow::Result;
 use thiserror::Error;
 
-use crate::lexer::Lexer;
+use crate::{lexer::Lexer, parser::Parser};
 
 #[derive(Debug, Error)]
 enum RunError {
@@ -21,14 +21,6 @@ pub struct SourceFile {
 pub struct RuntimeConfig {
     pub extended_whitespace: bool,
     pub unicode_identifiers: bool,
-}
-
-pub fn run(sources: Vec<SourceFile>, config: RuntimeConfig) -> Result<()> {
-    for source in sources {
-        Lexer::new(source, config).lex()?;
-    }
-
-    Ok(())
 }
 
 impl RuntimeConfig {
@@ -61,4 +53,22 @@ impl RuntimeConfig {
 
         Ok(())
     }
+}
+
+pub fn run(sources: Vec<SourceFile>, config: RuntimeConfig) -> Result<()> {
+    for source in sources {
+        let mut parser = Parser::new(Lexer::new(source, config));
+
+        println!("{:#}", parser.parse());
+
+        if !parser.errors().is_empty() {
+            println!("errors: [");
+            for err in parser.errors() {
+                println!("    {}", err);
+            }
+            println!("]");
+        }
+    }
+
+    Ok(())
 }
