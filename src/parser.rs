@@ -1,5 +1,6 @@
 use std::{fmt, rc::Rc};
 
+use lasso::{Rodeo, Spur};
 use thiserror::Error;
 
 use crate::{
@@ -66,7 +67,7 @@ enum Expression {
     Number(NumericLiteralString),
     Character(char),
     String(String),
-    Symbol(String),
+    Symbol(Spur),
     List {
         values: Vec<WithLocation<Expression>>,
         dot: Option<(WithLocation<()>, Box<Expression>)>,
@@ -95,7 +96,7 @@ impl fmt::Debug for Expression {
                 ch => write!(f, "#\\{:?}", ch),
             },
             Expression::String(val) => write!(f, "{:?}", val),
-            Expression::Symbol(val) => write!(f, "{}", val),
+            Expression::Symbol(val) => write!(f, "{:?}", val),
             Expression::List { values, dot } => {
                 let mut tuple = f.debug_tuple("");
                 for val in values {
@@ -159,18 +160,22 @@ pub struct Parser {
     /// All errors encountered during parsing, so they can all be reported at
     /// the end
     errors: Vec<ParseError>,
+
+    interner: Rodeo,
 }
 
 impl Parser {
     /// Create a new parser from a lexer
     pub fn new(mut lexer: Lexer) -> Parser {
         let mut errors = Vec::with_capacity(0);
+        let mut interner = Rodeo::new();
 
-        let peek = Self::advance_lexer(&mut lexer, &mut errors);
+        let peek = Self::advance_lexer(&mut lexer, &mut errors, &mut interner);
         Parser {
             lexer,
             peek,
             errors,
+            interner,
         }
     }
 
@@ -348,15 +353,19 @@ impl Parser {
 
     /// consumes and returns the next token
     fn advance(&mut self) -> WithLocation<Token> {
-        let new = Self::advance_lexer(&mut self.lexer, &mut self.errors);
+        let new = Self::advance_lexer(&mut self.lexer, &mut self.errors, &mut self.interner);
         std::mem::replace(&mut self.peek, new)
     }
 
     /// gets the next non-error token from the lexer
     /// reports the errors if relevant
-    fn advance_lexer(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> WithLocation<Token> {
+    fn advance_lexer(
+        lexer: &mut Lexer,
+        errors: &mut Vec<ParseError>,
+        interner: &mut Rodeo,
+    ) -> WithLocation<Token> {
         loop {
-            let tok = lexer.get_token_loc();
+            let tok = lexer.get_token_loc(interner);
             match tok.split() {
                 (ErrorToken::Token(t), loc) => return WithLocation::join(t, loc),
                 (ErrorToken::Error(err), loc) => errors.push(ParseError::InvalidToken {

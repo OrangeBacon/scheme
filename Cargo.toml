@@ -11,6 +11,7 @@ description = "Simple scheme implementation"
 clap = "2.33"
 anyhow = "1"
 thiserror = "1"
+lasso = "0.5"
 
 # not using the latest version, instead using the same version as
 # clap to reduce dependencies

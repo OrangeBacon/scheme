@@ -1,6 +1,7 @@
 use std::{fmt, rc::Rc};
 
 use anyhow::Result;
+use lasso::{Rodeo, Spur};
 use thiserror::Error;
 
 use crate::{
@@ -52,7 +53,7 @@ pub enum Token {
     Comma,
     CommaAt,
     Dot,
-    Identifier { value: String },
+    Identifier { value: Spur },
     Boolean { value: bool },
     Number { value: NumericLiteralString },
     Character { value: char },
@@ -243,7 +244,7 @@ impl Lexer {
     }
 
     /// Get the next token and its source location
-    pub fn get_token_loc(&mut self) -> WithLocation<ErrorToken> {
+    pub fn get_token_loc(&mut self, interner: &mut Rodeo) -> WithLocation<ErrorToken> {
         // need to skip whitespace before recording line and column positions
         // otherwise the whitespace will be included in the token's source
         // location
@@ -252,7 +253,7 @@ impl Lexer {
         let line = self.line;
         let column = self.column;
 
-        let tok = self.get_token();
+        let tok = self.get_token(interner);
 
         let length = self.current - self.start;
 
@@ -267,7 +268,7 @@ impl Lexer {
     }
 
     /// Get the next token from the source
-    pub fn get_token(&mut self) -> ErrorToken {
+    pub fn get_token(&mut self, interner: &mut Rodeo) -> ErrorToken {
         self.skip_whitespace();
         self.start = self.current;
 
@@ -277,9 +278,12 @@ impl Lexer {
             return Token::Eof.into();
         };
 
+        if let Some(tok) = self.parse_identifier(next, interner) {
+            return tok.into();
+        }
+
         // all parsers to try in order
-        const PARSERS: [fn(&mut Lexer, char) -> Option<ErrorToken>; 6] = [
-            Lexer::parse_identifier,
+        const PARSERS: [fn(&mut Lexer, char) -> Option<ErrorToken>; 5] = [
             Lexer::parse_boolean,
             Lexer::parse_number,
             Lexer::parse_character,
@@ -300,12 +304,21 @@ impl Lexer {
     }
 
     /// Parse a new identifier
-    fn parse_identifier(&mut self, next: char) -> Option<ErrorToken> {
+    fn parse_identifier(&mut self, next: char, interner: &mut Rodeo) -> Option<ErrorToken> {
         // peculiar identifiers  '+', '-', '...'
-        if matches!(next, '+' | '-') && self.is_delimiter(self.peek(0)) {
+        if next == '+' && self.is_delimiter(self.peek(0)) {
             return Some(
                 Token::Identifier {
-                    value: next.to_string(),
+                    value: interner.get_or_intern_static("+"),
+                }
+                .into(),
+            );
+        }
+
+        if next == '-' && self.is_delimiter(self.peek(0)) {
+            return Some(
+                Token::Identifier {
+                    value: interner.get_or_intern_static("-"),
                 }
                 .into(),
             );
@@ -320,7 +333,7 @@ impl Lexer {
             self.advance();
             return Some(
                 Token::Identifier {
-                    value: "...".to_string(),
+                    value: interner.get_or_intern_static("..."),
                 }
                 .into(),
             );
@@ -349,7 +362,12 @@ impl Lexer {
                 return Some(LexerError::InvalidIdentifier.into());
             }
 
-            return Some(Token::Identifier { value: ident }.into());
+            return Some(
+                Token::Identifier {
+                    value: interner.get_or_intern(ident),
+                }
+                .into(),
+            );
         }
 
         None
