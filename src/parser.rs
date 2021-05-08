@@ -2,7 +2,10 @@ use std::{fmt, rc::Rc};
 
 use thiserror::Error;
 
-use crate::lexer::{ErrorToken, Lexer, LexerError, NumericLiteral, Token, WithLocation};
+use crate::{
+    lexer::{ErrorToken, Lexer, LexerError, Token, WithLocation},
+    numerics::NumericLiteralString,
+};
 
 #[derive(Debug, Error)]
 pub enum ParseError {
@@ -60,7 +63,7 @@ impl<'a> fmt::Debug for SourcePrinter<'a> {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum Expression {
     Boolean(bool),
-    Number(NumericLiteral),
+    Number(NumericLiteralString),
     Character(char),
     String(String),
     Symbol(String),

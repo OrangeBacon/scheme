@@ -1,9 +1,12 @@
-use std::{borrow::Cow, fmt, rc::Rc};
+use std::{fmt, rc::Rc};
 
 use anyhow::Result;
 use thiserror::Error;
 
-use crate::run::{RuntimeConfig, SourceFile};
+use crate::{
+    numerics::{NumberString, NumericLiteralString, Radix},
+    run::{RuntimeConfig, SourceFile},
+};
 
 #[derive(Debug, Error, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LexerError {
@@ -51,82 +54,10 @@ pub enum Token {
     Dot,
     Identifier { value: String },
     Boolean { value: bool },
-    Number { value: NumericLiteral },
+    Number { value: NumericLiteralString },
     Character { value: char },
     String { value: String },
     Eof,
-}
-
-/// Data required for storing a number
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NumericLiteral {
-    radix: Option<Radix>,
-    exact: Option<bool>,
-    polar_form: bool,
-    real: Number,
-    imaginary: Number,
-}
-
-impl fmt::Display for NumericLiteral {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let NumericLiteral {
-            exact,
-            radix,
-            real,
-            imaginary,
-            polar_form,
-        } = self;
-
-        if *exact == Some(true) {
-            write!(f, "#e")?;
-        } else if *exact == Some(false) {
-            write!(f, "#i")?;
-        }
-        match radix {
-            Some(Radix::Binary) => write!(f, "#b")?,
-            Some(Radix::Octal) => write!(f, "#o")?,
-            Some(Radix::Hexadecimal) => write!(f, "#x")?,
-            _ => (),
-        }
-        if *polar_form {
-            write!(f, "Number({} @ {})", real, imaginary)?;
-        } else {
-            write!(f, "Number({} + {}i)", real, imaginary)?;
-        }
-
-        Ok(())
-    }
-}
-
-/// A Single numeric component
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Number {
-    Decimal(Cow<'static, str>),
-    Integer(Cow<'static, str>),
-    Fraction(Cow<'static, str>, Cow<'static, str>),
-}
-
-impl fmt::Display for Number {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Number::Decimal(val) => write!(f, "Decimal({})", val),
-            Number::Integer(val) => write!(f, "Integer({})", val),
-            Number::Fraction(num, denom) => write!(f, "Fraction({} / {})", num, denom),
-        }
-    }
-}
-
-impl Number {
-    const ZERO: Number = Number::Integer(Cow::Borrowed("0"));
-}
-
-/// Radices (bases) available for numeric literals
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Radix {
-    Binary,
-    Octal,
-    Decimal,
-    Hexadecimal,
 }
 
 impl fmt::Display for Token {
@@ -441,12 +372,12 @@ impl Lexer {
 
     /// Parse any kind of generic numeric literal
     fn parse_number(&mut self, mut next: char) -> Option<ErrorToken> {
-        let mut number = NumericLiteral {
+        let mut number = NumericLiteralString {
             radix: None,
             exact: None,
             polar_form: false,
-            real: Number::ZERO,
-            imaginary: Number::ZERO,
+            real: NumberString::ZERO,
+            imaginary: NumberString::ZERO,
         };
 
         let mut started = false;
@@ -511,9 +442,9 @@ impl Lexer {
             self.advance();
 
             if next == '+' {
-                number.imaginary = Number::Integer("1".into());
+                number.imaginary = NumberString::Integer("1".into());
             } else {
-                number.imaginary = Number::Integer("-1".into());
+                number.imaginary = NumberString::Integer("-1".into());
             }
 
             if !self.is_delimiter(self.peek(0)) {
@@ -553,9 +484,9 @@ impl Lexer {
                     self.advance();
                     number.real = first;
                     if val == '+' {
-                        number.imaginary = Number::Integer("1".into());
+                        number.imaginary = NumberString::Integer("1".into());
                     } else {
-                        number.imaginary = Number::Integer("-1".into());
+                        number.imaginary = NumberString::Integer("-1".into());
                     }
                 } else {
                     // <real R> [+-] <ureal R> i
@@ -574,7 +505,7 @@ impl Lexer {
             Some('i') => {
                 // [+-] <ureal R> i
                 self.advance();
-                number.real = Number::ZERO;
+                number.real = NumberString::ZERO;
                 number.imaginary = first;
             }
             _ => number.real = first,
@@ -589,10 +520,10 @@ impl Lexer {
 
     fn parse_real(
         &mut self,
-        number: &NumericLiteral,
+        number: &NumericLiteralString,
         started: &mut bool,
         next: Option<char>,
-    ) -> Result<Number, LexerError> {
+    ) -> Result<NumberString, LexerError> {
         let mut num = String::new();
         let mut next = match next {
             Some(ch) => ch,
@@ -623,7 +554,7 @@ impl Lexer {
 
             self.decimal_suffix(&mut num)?;
 
-            return Ok(Number::Decimal(num.into()));
+            return Ok(NumberString::Decimal(num.into()));
         }
 
         if !Self::digits(number.radix).contains(next) {
@@ -650,14 +581,14 @@ impl Lexer {
                     part2.push('#');
                     self.advance();
                 }
-                Ok(Number::Fraction(num.into(), part2.into()))
+                Ok(NumberString::Fraction(num.into(), part2.into()))
             }
             Some('e' | 's' | 'f' | 'd' | 'l') => {
                 // number with exponential suffix
                 // does not consume the peeked character as that is
                 // performed inside the suffix parsing
                 self.decimal_suffix(&mut num)?;
-                Ok(Number::Decimal(num.into()))
+                Ok(NumberString::Decimal(num.into()))
             }
             Some('#') => {
                 while self.peek_is(0, "#") {
@@ -667,7 +598,7 @@ impl Lexer {
 
                 if !self.peek_is(0, ".") {
                     // found <uinteger R>
-                    return Ok(Number::Integer(num.into()));
+                    return Ok(NumberString::Integer(num.into()));
                 }
 
                 // <digit 10>+ #+ . #* <suffix>
@@ -681,7 +612,7 @@ impl Lexer {
 
                 self.decimal_suffix(&mut num)?;
 
-                Ok(Number::Decimal(num.into()))
+                Ok(NumberString::Decimal(num.into()))
             }
             Some('.') => {
                 // <digit 10>+ . <digit 10>* #* <suffix>
@@ -707,9 +638,9 @@ impl Lexer {
 
                 self.decimal_suffix(&mut num)?;
 
-                Ok(Number::Decimal(num.into()))
+                Ok(NumberString::Decimal(num.into()))
             }
-            _ => Ok(Number::Integer(num.into())),
+            _ => Ok(NumberString::Integer(num.into())),
         }
     }
 
