@@ -1,14 +1,13 @@
 use std::{borrow::Cow, fmt, num::ParseFloatError};
 
-use anyhow::Result;
 use num_bigint::{BigInt, ParseBigIntError};
-use num_traits::{Num, ToPrimitive};
+use num_traits::{Num, Signed, ToPrimitive};
 use thiserror::Error;
 
 use crate::vm::Value;
 
 #[derive(Debug, Error)]
-enum NumericError {
+pub enum NumericError {
     #[error("Error converting number to big integer, this should not be possible: {source}")]
     BigIntError {
         #[from]
@@ -32,6 +31,12 @@ enum NumericError {
 
     #[error("Decimal numbers must be in base 10")]
     DecimalNotBase10,
+
+    #[error("Complex numbers specified in polar form must have both magnitude and angle")]
+    PolarMissingComponent,
+
+    #[error("Complex numbers specified in polar form cannot be represented exactly")]
+    PolarExact,
 }
 
 /// Data required for storing a number as a series of strings
@@ -40,8 +45,8 @@ pub struct NumericLiteralString {
     pub radix: Option<Radix>,
     pub exact: Option<bool>,
     pub polar_form: bool,
-    pub real: NumberString,
-    pub imaginary: NumberString,
+    pub real: Option<NumberString>,
+    pub imaginary: Option<NumberString>,
 }
 
 /// A single numeric component stored as strings
@@ -85,20 +90,62 @@ pub enum Number {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ComplexNumber {
     real: Number,
-    complex: Number,
+    imaginary: Number,
 }
 
 // implementations
 
 impl NumericLiteralString {
-    pub fn to_value() -> Value {
-        todo!()
+    pub fn to_value(self) -> Result<Value, NumericError> {
+        let radix = self.radix.unwrap_or(Radix::Decimal);
+        let exactness = self.exact;
+
+        if self.polar_form {
+            if self.exact == Some(true) {
+                return Err(NumericError::PolarExact);
+            }
+
+            let magnitude = self.real.ok_or(NumericError::PolarMissingComponent)?;
+            let angle = self.imaginary.ok_or(NumericError::PolarMissingComponent)?;
+
+            let magnitude = magnitude.to_number(radix, exactness)?;
+            let angle = angle.to_number(radix, exactness)?;
+
+            let magnitude = magnitude.to_f64().ok_or(NumericError::BigIntFloatConvert)?;
+            let angle = angle.to_f64().ok_or(NumericError::BigIntFloatConvert)?;
+
+            // for polar->rectangular conversion:
+            // real = mag*cos(angle)
+            // imaginary = mag*sin(angle)
+
+            Ok(Value::Complex(Box::new(ComplexNumber {
+                real: Number::Double(magnitude * angle.cos()),
+                imaginary: Number::Double(magnitude * angle.sin()),
+            })))
+        } else if self.imaginary.is_none() {
+            let real = self
+                .real
+                .map(|num| num.to_number(radix, exactness))
+                .unwrap_or(Ok(Number::Integer(0)))?;
+
+            Ok(Value::Number(real))
+        } else {
+            let real = self
+                .real
+                .map(|num| num.to_number(radix, exactness))
+                .unwrap_or(Ok(Number::Integer(0)))?;
+
+            let imaginary = self
+                .imaginary
+                .map(|num| num.to_number(radix, exactness))
+                .unwrap_or(Ok(Number::Integer(0)))?;
+
+            Ok(Value::Complex(Box::new(ComplexNumber { real, imaginary })))
+        }
     }
 }
 
 impl NumberString {
-    pub const ZERO: NumberString = NumberString::Integer(Cow::Borrowed("0"));
-
     fn to_number(&self, radix: Radix, exactness: Option<bool>) -> Result<Number, NumericError> {
         let radix_num = radix.to_number();
 
@@ -200,47 +247,56 @@ impl Radix {
     }
 }
 
-// Formatters
+impl Number {
+    fn to_f64(&self) -> Option<f64> {
+        Some(match self {
+            Number::Integer(val) => *val as _,
+            Number::Single(val) => *val as _,
+            Number::Double(val) => *val,
 
-impl fmt::Display for NumericLiteralString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let NumericLiteralString {
-            exact,
-            radix,
-            real,
-            imaginary,
-            polar_form,
-        } = self;
-
-        if *exact == Some(true) {
-            write!(f, "#e")?;
-        } else if *exact == Some(false) {
-            write!(f, "#i")?;
-        }
-        match radix {
-            Some(Radix::Binary) => write!(f, "#b")?,
-            Some(Radix::Octal) => write!(f, "#o")?,
-            Some(Radix::Hexadecimal) => write!(f, "#x")?,
-            _ => (),
-        }
-        if *polar_form {
-            write!(f, "Number({} @ {})", real, imaginary)?;
-        } else {
-            write!(f, "Number({} + {}i)", real, imaginary)?;
-        }
-
-        Ok(())
+            Number::BigInteger(val) => val.to_f64()?,
+            Number::Real(val) => val[0].to_f64()? / val[1].to_f64()?,
+        })
     }
 }
 
-impl fmt::Display for NumberString {
+// Formatters
+
+impl fmt::Display for ComplexNumber {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let is_positive = match &self.imaginary {
+            Number::Integer(val) => val.is_positive(),
+            Number::BigInteger(val) => val.is_positive(),
+            Number::Single(val) => val.is_positive(),
+            Number::Double(val) => val.is_positive(),
+            Number::Real(val) => val[0].is_positive() && val[1].is_positive(),
+        };
+
+        let sign = if is_positive { "+" } else { "" };
+
+        write!(f, "{}{}{}i", self.real, sign, self.imaginary)
+    }
+}
+
+impl fmt::Display for Number {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            NumberString::Decimal(val, exp) => {
-                write!(f, "Decimal({}, {:?})", val, exp)
+            Number::Integer(val) => write!(f, "{}", val),
+            Number::BigInteger(val) => write!(f, "{}", val),
+            Number::Single(val) => write!(f, "{}", val),
+            Number::Double(val) => write!(f, "{}", val),
+            Number::Real(val) => {
+                write!(f, "({} / {})", val[0], val[1])
             }
-            NumberString::Integer(val) => write!(f, "Integer({})", val),
-            NumberString::Fraction(num, denom) => write!(f, "Fraction({} / {})", num, denom),
+        }
+    }
+}
+
+impl fmt::Display for NumericLiteralString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.clone().to_value() {
+            Ok(val) => write!(f, "{}", val),
+            Err(_) => write!(f, "invalid_number"),
         }
     }
 }

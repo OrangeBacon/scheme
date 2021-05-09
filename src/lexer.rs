@@ -394,8 +394,8 @@ impl Lexer {
             radix: None,
             exact: None,
             polar_form: false,
-            real: NumberString::ZERO,
-            imaginary: NumberString::ZERO,
+            real: None,
+            imaginary: None,
         };
 
         let mut started = false;
@@ -460,9 +460,9 @@ impl Lexer {
             self.advance();
 
             if next == '+' {
-                number.imaginary = NumberString::Integer("1".into());
+                number.imaginary = Some(NumberString::Integer("1".into()));
             } else {
-                number.imaginary = NumberString::Integer("-1".into());
+                number.imaginary = Some(NumberString::Integer("-1".into()));
             }
 
             if !self.is_delimiter(self.peek(0)) {
@@ -493,10 +493,10 @@ impl Lexer {
                 // polar form complex number
                 number.polar_form = true;
                 self.advance();
-                number.real = first;
+                number.real = Some(first);
                 let next = self.advance();
                 number.imaginary = match self.parse_real(&number, &mut started, next) {
-                    Ok(num) => num,
+                    Ok(num) => Some(num),
                     Err(err) => return Some(err.into()),
                 };
             }
@@ -505,20 +505,20 @@ impl Lexer {
                     // <real R> [+-] i
                     self.advance();
                     self.advance();
-                    number.real = first;
+                    number.real = Some(first);
                     if val == '+' {
-                        number.imaginary = NumberString::Integer("1".into());
+                        number.imaginary = Some(NumberString::Integer("1".into()));
                     } else {
-                        number.imaginary = NumberString::Integer("-1".into());
+                        number.imaginary = Some(NumberString::Integer("-1".into()));
                     }
                 } else {
                     // <real R> [+-] <ureal R> i
-                    number.real = first;
+                    number.real = Some(first);
                     let next = self.advance();
 
                     let err = match self.parse_real(&number, &mut started, next) {
                         Ok(real) => {
-                            number.imaginary = real;
+                            number.imaginary = Some(real);
                             None
                         }
                         Err(err) => Some(err),
@@ -540,10 +540,9 @@ impl Lexer {
             Some('i') => {
                 // [+-] <ureal R> i
                 self.advance();
-                number.real = NumberString::ZERO;
-                number.imaginary = first;
+                number.imaginary = Some(first);
             }
-            _ => number.real = first,
+            _ => number.real = Some(first),
         }
 
         if !self.is_delimiter(self.peek(0)) {
@@ -578,10 +577,6 @@ impl Lexer {
 
         if next == '.' {
             // decimal number beginning with a dot
-            if number.radix != Some(Radix::Decimal) && number.radix != None {
-                return Err(LexerError::DecimalRadix);
-            }
-
             num.push('.');
 
             self.unsigned_integer(number.radix, &mut num)?;
@@ -593,6 +588,10 @@ impl Lexer {
             }
 
             let exponent = self.decimal_suffix()?;
+
+            if number.radix != Some(Radix::Decimal) && number.radix != None {
+                return Err(LexerError::DecimalRadix);
+            }
 
             return Ok(NumberString::Decimal(num.into(), exponent));
         }

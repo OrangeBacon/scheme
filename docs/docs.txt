@@ -40,7 +40,9 @@ which is implementation defined to be a 64 bit double precision floating point
 number.
 Complex numbers' internal representation allows for any of the prior number
 formats for both their real and imaginary components, there is no restriction
-that both components use the same format.
+that both components use the same format.  Due to this each component has
+its own exactness and the overall number is exact if and only if both of the
+components are exact.
 If integers can be stored in a 64 bit signed integer instead of an arbitrary
 precision integer they will be. They will be promoted to an arbitrary precision
 integer if the result of a numeric operation requires it.
