@@ -1,12 +1,12 @@
-use std::{fmt, rc::Rc};
+use std::fmt;
 
 use anyhow::Result;
-use lasso::{Rodeo, Spur};
+use lasso::Spur;
 use thiserror::Error;
 
 use crate::{
+    environment::Environment,
     numerics::{ExponentKind, NumberString, NumericLiteralString, Radix},
-    run::{RuntimeConfig, SourceFile},
 };
 
 #[derive(Debug, Error, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -121,21 +121,13 @@ impl From<LexerError> for ErrorToken {
 /// Wrapper providing source location information for a type
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WithLocation<T> {
-    /// The name of the source file the location is in
-    file_name: Option<Rc<String>>,
-
-    /// The line number at the start of the location
-    line: usize,
-
-    /// The column number at the start of the location
-    column: usize,
+    /// The file being parsed, an index into the environment's file list
+    file: usize,
 
     /// The number of characters this location spans
     length: usize,
 
     /// The character offset into the file that this span starts at
-    /// todo: line and column could probably be calculated from this value
-    /// if required, saves space + computing if they are not read
     start_offset: usize,
 
     /// The data that the span's source has been converted into
@@ -143,14 +135,6 @@ pub struct WithLocation<T> {
 }
 
 impl<T> WithLocation<T> {
-    /// Get the filename of the location
-    pub fn file_name(&self) -> Option<Rc<String>> {
-        match &self.file_name {
-            Some(val) => Some(Rc::clone(val)),
-            None => None,
-        }
-    }
-
     /// Get a ref to the content stored
     pub fn content(&self) -> &T {
         &self.content
@@ -162,9 +146,7 @@ impl<T> WithLocation<T> {
             self.content,
             WithLocation {
                 content: (),
-                file_name: self.file_name,
-                line: self.line,
-                column: self.column,
+                file: self.file,
                 length: self.length,
                 start_offset: self.start_offset,
             },
@@ -175,9 +157,7 @@ impl<T> WithLocation<T> {
     pub fn join<U>(val: T, loc: WithLocation<U>) -> WithLocation<T> {
         WithLocation {
             content: val,
-            file_name: loc.file_name,
-            line: loc.line,
-            column: loc.column,
+            file: loc.file,
             length: loc.length,
             start_offset: loc.start_offset,
         }
@@ -196,21 +176,19 @@ impl<T> WithLocation<T> {
 
 impl<T: fmt::Display> fmt::Display for WithLocation<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{} | {}", self.line, self.column, self.content)
+        write!(
+            f,
+            "{}:{} | {}",
+            self.start_offset,
+            self.start_offset + self.length,
+            self.content
+        )
     }
 }
 
 /// State used when converting a string into a token list
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Lexer {
-    /// Location the source was found in.  Rc is used so that locations can contain
-    /// the file name without having to clone the whole string or take a lifetime
-    /// parameter.
-    path: Option<Rc<String>>,
-
-    /// Global configuration options
-    config: RuntimeConfig,
-
     /// The source code being lexed
     source: Vec<char>,
 
@@ -220,47 +198,34 @@ pub struct Lexer {
     /// The index of the current character being checked
     current: usize,
 
-    /// The line number of current
-    line: usize,
-
-    /// The column number of current
-    column: usize,
+    /// The file number in the environment
+    file_idx: usize,
 }
 
 impl Lexer {
     /// Create a new lexer
-    pub fn new(source: SourceFile, config: RuntimeConfig) -> Self {
-        let path = source.path.map(Rc::new);
-
+    pub fn new(file_idx: usize, env: &Environment) -> Self {
         Self {
-            config,
-            path,
-            source: source.content.chars().collect(),
+            source: env.files()[file_idx].1.chars().collect(),
+            file_idx,
             current: 0,
             start: 0,
-            line: 1,
-            column: 1,
         }
     }
 
     /// Get the next token and its source location
-    pub fn get_token_loc(&mut self, interner: &mut Rodeo) -> WithLocation<ErrorToken> {
+    pub fn get_token_loc(&mut self, env: &mut Environment) -> WithLocation<ErrorToken> {
         // need to skip whitespace before recording line and column positions
         // otherwise the whitespace will be included in the token's source
         // location
-        self.skip_whitespace();
+        self.skip_whitespace(env);
 
-        let line = self.line;
-        let column = self.column;
-
-        let tok = self.get_token(interner);
+        let tok = self.get_token(env);
 
         let length = self.current - self.start;
 
         WithLocation {
-            file_name: self.get_path(),
-            line,
-            column,
+            file: self.file_idx,
             length,
             content: tok,
             start_offset: self.start,
@@ -268,8 +233,8 @@ impl Lexer {
     }
 
     /// Get the next token from the source
-    pub fn get_token(&mut self, interner: &mut Rodeo) -> ErrorToken {
-        self.skip_whitespace();
+    pub fn get_token(&mut self, env: &mut Environment) -> ErrorToken {
+        self.skip_whitespace(env);
         self.start = self.current;
 
         let next = if let Some(next) = self.advance() {
@@ -278,22 +243,22 @@ impl Lexer {
             return Token::Eof.into();
         };
 
-        if let Some(tok) = self.parse_identifier(next, interner) {
+        if let Some(tok) = self.parse_identifier(next, env) {
             return tok.into();
         }
-
-        // all parsers to try in order
-        const PARSERS: [fn(&mut Lexer, char) -> Option<ErrorToken>; 5] = [
-            Lexer::parse_boolean,
-            Lexer::parse_number,
-            Lexer::parse_character,
-            Lexer::parse_string,
-            Lexer::parse_symbol,
-        ];
-
-        let tok = PARSERS.iter().find_map(|f| f(self, next));
-
-        if let Some(tok) = tok {
+        if let Some(tok) = self.parse_boolean(next) {
+            return tok.into();
+        }
+        if let Some(tok) = self.parse_number(next, env) {
+            return tok.into();
+        }
+        if let Some(tok) = self.parse_character(next, env) {
+            return tok.into();
+        }
+        if let Some(tok) = self.parse_string(next) {
+            return tok.into();
+        }
+        if let Some(tok) = self.parse_symbol(next) {
             return tok.into();
         }
 
@@ -304,21 +269,21 @@ impl Lexer {
     }
 
     /// Parse a new identifier
-    fn parse_identifier(&mut self, next: char, interner: &mut Rodeo) -> Option<ErrorToken> {
+    fn parse_identifier(&mut self, next: char, env: &mut Environment) -> Option<ErrorToken> {
         // peculiar identifiers  '+', '-', '...'
-        if next == '+' && self.is_delimiter(self.peek(0)) {
+        if next == '+' && self.is_delimiter(self.peek(0), env) {
             return Some(
                 Token::Identifier {
-                    value: interner.get_or_intern_static("+"),
+                    value: env.symbols().get_or_intern_static("+"),
                 }
                 .into(),
             );
         }
 
-        if next == '-' && self.is_delimiter(self.peek(0)) {
+        if next == '-' && self.is_delimiter(self.peek(0), env) {
             return Some(
                 Token::Identifier {
-                    value: interner.get_or_intern_static("-"),
+                    value: env.symbols().get_or_intern_static("-"),
                 }
                 .into(),
             );
@@ -327,30 +292,30 @@ impl Lexer {
         if next == '.'
             && self.peek_is(0, ".")
             && self.peek_is(1, ".")
-            && self.is_delimiter(self.peek(2))
+            && self.is_delimiter(self.peek(2), env)
         {
             self.advance();
             self.advance();
             return Some(
                 Token::Identifier {
-                    value: interner.get_or_intern_static("..."),
+                    value: env.symbols().get_or_intern_static("..."),
                 }
                 .into(),
             );
         }
 
         // regular identifiers
-        if self.is_initial(next) {
+        if self.is_initial(next, env) {
             let mut ident = String::from(next);
 
             while let Some(ch) = self.peek(0) {
-                let test = if self.config.unicode_identifiers {
+                let test = if env.config().unicode_identifiers {
                     ch.is_numeric()
                 } else {
                     ch.is_ascii_digit()
                 };
 
-                if test || self.is_initial(ch) || "+-.@".contains(ch) {
+                if test || self.is_initial(ch, env) || "+-.@".contains(ch) {
                     self.advance();
                     ident.push(ch);
                 } else {
@@ -358,13 +323,13 @@ impl Lexer {
                 }
             }
 
-            if !self.is_delimiter(self.peek(0)) {
+            if !self.is_delimiter(self.peek(0), env) {
                 return Some(LexerError::InvalidIdentifier.into());
             }
 
             return Some(
                 Token::Identifier {
-                    value: interner.get_or_intern(ident),
+                    value: env.symbols().get_or_intern(ident),
                 }
                 .into(),
             );
@@ -389,7 +354,7 @@ impl Lexer {
     }
 
     /// Parse any kind of generic numeric literal
-    fn parse_number(&mut self, mut next: char) -> Option<ErrorToken> {
+    fn parse_number(&mut self, mut next: char, env: &mut Environment) -> Option<ErrorToken> {
         let mut number = NumericLiteralString {
             radix: None,
             exact: None,
@@ -465,7 +430,7 @@ impl Lexer {
                 number.imaginary = Some(NumberString::Integer("-1".into()));
             }
 
-            if !self.is_delimiter(self.peek(0)) {
+            if !self.is_delimiter(self.peek(0), env) {
                 return Some(LexerError::InvalidNumericTerminator.into());
             }
 
@@ -545,7 +510,7 @@ impl Lexer {
             _ => number.real = Some(first),
         }
 
-        if !self.is_delimiter(self.peek(0)) {
+        if !self.is_delimiter(self.peek(0), env) {
             return Some(LexerError::InvalidNumericTerminator.into());
         }
 
@@ -772,7 +737,7 @@ impl Lexer {
     }
 
     /// Parse a single character literal
-    fn parse_character(&mut self, next: char) -> Option<ErrorToken> {
+    fn parse_character(&mut self, next: char, env: &mut Environment) -> Option<ErrorToken> {
         if next != '#' || self.peek(0) != Some('\\') {
             return None;
         }
@@ -783,7 +748,7 @@ impl Lexer {
         while let Some(char) = self.peek(0) {
             if char.is_ascii_whitespace()
                 || ("\"();".contains(char) && !content.is_empty())
-                || (self.config.extended_whitespace && char.is_whitespace())
+                || (env.config().extended_whitespace && char.is_whitespace())
             {
                 break;
             } else {
@@ -880,7 +845,7 @@ impl Lexer {
     }
 
     // skips whitespace and comments that are not part of a token
-    fn skip_whitespace(&mut self) {
+    fn skip_whitespace(&mut self, env: &mut Environment) {
         loop {
             match self.peek(0) {
                 // default whitespace
@@ -888,7 +853,7 @@ impl Lexer {
                     self.advance();
                 }
                 // all whitespace
-                Some(c) if self.config.extended_whitespace && c.is_whitespace() => {
+                Some(c) if env.config().extended_whitespace && c.is_whitespace() => {
                     self.advance();
                 }
                 // comments
@@ -904,8 +869,8 @@ impl Lexer {
     }
 
     /// is a character a valid letter for the start of an identifier
-    fn is_initial(&self, c: char) -> bool {
-        let res = if self.config.unicode_identifiers {
+    fn is_initial(&self, c: char, env: &mut Environment) -> bool {
+        let res = if env.config().unicode_identifiers {
             c.is_alphabetic()
         } else {
             c.is_ascii_alphabetic()
@@ -915,10 +880,10 @@ impl Lexer {
     }
 
     /// is a character a valid delimiter between tokens
-    fn is_delimiter(&self, val: Option<char>) -> bool {
+    fn is_delimiter(&self, val: Option<char>, env: &mut Environment) -> bool {
         if let Some(val) = val {
             matches!(val, '(' | ')' | '"' | ';' | ' ' | '\n')
-                || (self.config.extended_whitespace && val.is_whitespace())
+                || (env.config().extended_whitespace && val.is_whitespace())
         } else {
             true
         }
@@ -940,12 +905,6 @@ impl Lexer {
         // don't change positions if at EOF
         if res.is_some() {
             self.current += 1;
-            self.column += 1;
-
-            if res == Some('\n') {
-                self.line += 1;
-                self.column = 1;
-            }
         }
 
         res
@@ -956,10 +915,5 @@ impl Lexer {
     /// count == 1 => peekNext
     fn peek(&self, count: usize) -> Option<char> {
         self.source.get(self.current + count).copied()
-    }
-
-    /// Convenience method to clone the path rc if required
-    fn get_path(&self) -> Option<Rc<String>> {
-        self.path.as_ref().map(|str| Rc::clone(str))
     }
 }

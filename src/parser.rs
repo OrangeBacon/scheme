@@ -1,9 +1,10 @@
-use std::{fmt, rc::Rc};
+use std::fmt;
 
-use lasso::{Key, Rodeo, Spur};
+use lasso::{Key, Spur};
 use thiserror::Error;
 
 use crate::{
+    environment::Environment,
     lexer::{ErrorToken, Lexer, LexerError, Token, WithLocation},
     numerics::NumericLiteralString,
 };
@@ -29,17 +30,12 @@ pub enum ParseError {
 /// Top level of a scheme file
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Program {
-    file_name: Option<Rc<String>>,
     content: Vec<WithLocation<Expression>>,
 }
 
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut out = f.debug_struct("Program");
-
-        if let Some(name) = &self.file_name {
-            out.field("file_name", name.as_ref());
-        }
 
         out.field("source", &SourcePrinter(&self.content));
 
@@ -150,40 +146,29 @@ impl fmt::Display for Prefix {
 }
 
 /// State required to parse a program
-pub struct Parser {
+pub struct Parser<'a> {
     /// The lexer for the file being parsed
     lexer: Lexer,
 
     /// The next token available, will be consumed by advance and read by peek
     peek: WithLocation<Token>,
 
-    /// All errors encountered during parsing, so they can all be reported at
-    /// the end
-    errors: Vec<ParseError>,
-
-    interner: Rodeo,
+    /// The environment used for parsing
+    env: &'a mut Environment,
 }
 
-impl Parser {
+impl<'a> Parser<'a> {
     /// Create a new parser from a lexer
-    pub fn new(mut lexer: Lexer) -> Parser {
-        let mut errors = Vec::with_capacity(0);
-        let mut interner = Rodeo::new();
+    pub fn new(file_idx: usize, env: &'a mut Environment) -> Self {
+        let mut lexer = Lexer::new(file_idx, env);
 
-        let peek = Self::advance_lexer(&mut lexer, &mut errors, &mut interner);
-        Parser {
-            lexer,
-            peek,
-            errors,
-            interner,
-        }
+        let peek = Self::advance_lexer(&mut lexer, env);
+        Parser { lexer, peek, env }
     }
 
     /// Parses a whole source code file
     pub fn parse(&mut self) -> Program {
         let mut content = vec![];
-
-        let file_name = self.peek().file_name();
 
         while !self.peek().matches(&Token::Eof) {
             if let Some(element) = self.parse_datum() {
@@ -191,16 +176,7 @@ impl Parser {
             }
         }
 
-        Program { file_name, content }
-    }
-
-    /// Get all the errors thrown during parsing
-    pub fn errors(&self) -> &[ParseError] {
-        &self.errors
-    }
-
-    pub fn strings(&self) -> &Rodeo {
-        &self.interner
+        Program { content }
     }
 
     /// Parses a single datum.
@@ -357,22 +333,18 @@ impl Parser {
 
     /// consumes and returns the next token
     fn advance(&mut self) -> WithLocation<Token> {
-        let new = Self::advance_lexer(&mut self.lexer, &mut self.errors, &mut self.interner);
+        let new = Self::advance_lexer(&mut self.lexer, self.env);
         std::mem::replace(&mut self.peek, new)
     }
 
     /// gets the next non-error token from the lexer
     /// reports the errors if relevant
-    fn advance_lexer(
-        lexer: &mut Lexer,
-        errors: &mut Vec<ParseError>,
-        interner: &mut Rodeo,
-    ) -> WithLocation<Token> {
+    fn advance_lexer(lexer: &mut Lexer, env: &mut Environment) -> WithLocation<Token> {
         loop {
-            let tok = lexer.get_token_loc(interner);
+            let tok = lexer.get_token_loc(env);
             match tok.split() {
                 (ErrorToken::Token(t), loc) => return WithLocation::join(t, loc),
-                (ErrorToken::Error(err), loc) => errors.push(ParseError::InvalidToken {
+                (ErrorToken::Error(err), loc) => env.emit_error(ParseError::InvalidToken {
                     err: WithLocation::join(err, loc),
                 }),
             }
@@ -380,7 +352,7 @@ impl Parser {
     }
 
     fn emit_error(&mut self, err: ParseError) {
-        self.errors.push(err);
+        self.env.emit_error(err);
     }
 }
 

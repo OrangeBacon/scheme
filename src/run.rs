@@ -2,7 +2,7 @@ use anyhow::Result;
 use lasso::Key;
 use thiserror::Error;
 
-use crate::{lexer::Lexer, parser::Parser};
+use crate::environment::Environment;
 
 #[derive(Debug, Error)]
 enum RunError {
@@ -58,21 +58,24 @@ impl RuntimeConfig {
 
 pub fn run(sources: Vec<SourceFile>, config: RuntimeConfig) -> Result<()> {
     for source in sources {
-        let mut parser = Parser::new(Lexer::new(source, config));
+        let mut env = Environment::new(config);
+        let main = env.add_file(
+            source.path.unwrap_or(String::from("unknown_file")),
+            source.content,
+        );
+        env.run(main);
 
-        println!("{:#}", parser.parse());
-
-        if !parser.strings().is_empty() {
+        if !env.symbols().is_empty() {
             println!("strings: [");
-            for (idx, string) in parser.strings() {
+            for (idx, string) in env.symbols().iter() {
                 println!("    {}: {}", idx.into_usize(), string);
             }
             println!("]");
         }
 
-        if !parser.errors().is_empty() {
+        if !env.errors().is_empty() {
             println!("errors: [");
-            for err in parser.errors() {
+            for err in env.errors() {
                 println!("    {}", err);
             }
             println!("]");

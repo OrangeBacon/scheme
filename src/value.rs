@@ -2,6 +2,7 @@ use std::{any::Any, fmt};
 
 use crate::numerics::{ComplexNumber, Number};
 
+#[allow(dead_code)]
 pub enum Value {
     Boolean(bool),
     Character(char),
