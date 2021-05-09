@@ -1,6 +1,6 @@
 use std::{fmt, rc::Rc};
 
-use lasso::{Rodeo, Spur};
+use lasso::{Key, Rodeo, Spur};
 use thiserror::Error;
 
 use crate::{
@@ -64,7 +64,7 @@ impl<'a> fmt::Debug for SourcePrinter<'a> {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum Expression {
     Boolean(bool),
-    Number(NumericLiteralString),
+    Number(Box<NumericLiteralString>),
     Character(char),
     String(String),
     Symbol(Spur),
@@ -96,7 +96,7 @@ impl fmt::Debug for Expression {
                 ch => write!(f, "#\\{:?}", ch),
             },
             Expression::String(val) => write!(f, "{:?}", val),
-            Expression::Symbol(val) => write!(f, "{:?}", val),
+            Expression::Symbol(val) => write!(f, "Symbol({})", val.into_usize()),
             Expression::List { values, dot } => {
                 let mut tuple = f.debug_tuple("");
                 for val in values {
@@ -197,6 +197,10 @@ impl Parser {
     /// Get all the errors thrown during parsing
     pub fn errors(&self) -> &[ParseError] {
         &self.errors
+    }
+
+    pub fn strings(&self) -> &Rodeo {
+        &self.interner
     }
 
     /// Parses a single datum.

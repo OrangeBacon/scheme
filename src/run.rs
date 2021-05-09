@@ -1,4 +1,5 @@
 use anyhow::Result;
+use lasso::Key;
 use thiserror::Error;
 
 use crate::{lexer::Lexer, parser::Parser};
@@ -60,6 +61,14 @@ pub fn run(sources: Vec<SourceFile>, config: RuntimeConfig) -> Result<()> {
         let mut parser = Parser::new(Lexer::new(source, config));
 
         println!("{:#}", parser.parse());
+
+        if !parser.strings().is_empty() {
+            println!("strings: [");
+            for (idx, string) in parser.strings() {
+                println!("    {}: {}", idx.into_usize(), string);
+            }
+            println!("]");
+        }
 
         if !parser.errors().is_empty() {
             println!("errors: [");

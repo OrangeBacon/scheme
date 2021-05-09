@@ -22,3 +22,37 @@ the strict mode flag.
   Identifiers are changed from being allowed to contain [a-z0-9] and symbols
   after the first character to any alphanumeric unicode character and the same
   set of symbols.
+
+- Numeric Representation
+Numbers can be specified as either exact or inexact using `#e` or `#i` number
+prefixes respectively.  If the number after the prefix can only be represented
+as inexact, but the exact prefix is specified an error will be thrown.
+The integer types used internally have infinite (with in system memory
+limitations) precision.  Numbers can also be specified as fractions, which are
+stored exactly, they are not converted to floating point types.
+Decimal numbers have five different exponent markers, `e`, `s`, `f`, `d` and
+`l`.  These can be specified after a base 10 number that is not a fraction.
+Exponent markers `s` (for `short`) and `f` (for `float`) use a 32 bit single
+precision floating point numeric representation.  Exponent markers `d` (for
+`double`) and `l` (for `long`) use a 64 bit double precision floating point
+representation.  Exponent marker `e` specifies the system default representation
+which is implementation defined to be a 64 bit double precision floating point
+number.
+Complex numbers' internal representation allows for any of the prior number
+formats for both their real and imaginary components, there is no restriction
+that both components use the same format.
+If integers can be stored in a 64 bit signed integer instead of an arbitrary
+precision integer they will be. They will be promoted to an arbitrary precision
+integer if the result of a numeric operation requires it.
+In general integers are promoted to arbitrary precision integers, arbitrary
+precision rational (fractional) numbers and then 64 bit floating point numbers
+as required, where converting to floating point looses exactness.  An attempt
+to use the earliest type in that list will be made, however once a number is
+promoted to floating point, it will never be implicitly converted back again.
+In numeric literals, any continuous sequence of digits at the end of a number
+can be replaced with `#`.  These will be replaced with the digit 0, for example
+`123#` => `1230` and `5#.##` => `50.00`.  If any numeric digits are present
+after the first `#` it is considered an error.  This also has the effect of
+making the number become inexact, this will force the number to become a
+floating point type, by default 64 bit, unless specified otherwise by a decimal
+exponent suffix.

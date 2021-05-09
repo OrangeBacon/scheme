@@ -15,6 +15,7 @@ mod lexer;
 mod numerics;
 mod parser;
 mod run;
+mod vm;
 
 /// Errors encountered while interpreting the input arguments
 #[derive(Debug, Error)]

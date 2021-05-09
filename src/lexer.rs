@@ -5,7 +5,7 @@ use lasso::{Rodeo, Spur};
 use thiserror::Error;
 
 use crate::{
-    numerics::{NumberString, NumericLiteralString, Radix},
+    numerics::{ExponentKind, NumberString, NumericLiteralString, Radix},
     run::{RuntimeConfig, SourceFile},
 };
 
@@ -55,7 +55,7 @@ pub enum Token {
     Dot,
     Identifier { value: Spur },
     Boolean { value: bool },
-    Number { value: NumericLiteralString },
+    Number { value: Box<NumericLiteralString> },
     Character { value: char },
     String { value: String },
     Eof,
@@ -469,7 +469,12 @@ impl Lexer {
                 return Some(LexerError::InvalidNumericTerminator.into());
             }
 
-            return Some(Token::Number { value: number }.into());
+            return Some(
+                Token::Number {
+                    value: Box::new(number),
+                }
+                .into(),
+            );
         }
 
         let first = match self.parse_real(&number, &mut started, Some(next)) {
@@ -510,14 +515,26 @@ impl Lexer {
                     // <real R> [+-] <ureal R> i
                     number.real = first;
                     let next = self.advance();
-                    number.imaginary = match self.parse_real(&number, &mut started, next) {
-                        Ok(num) => num,
-                        Err(err) => return Some(err.into()),
+
+                    let err = match self.parse_real(&number, &mut started, next) {
+                        Ok(real) => {
+                            number.imaginary = real;
+                            None
+                        }
+                        Err(err) => Some(err),
                     };
+
                     if !self.peek_is(0, "iI") {
+                        if let Some(err) = err {
+                            return Some(err.into());
+                        }
                         return Some(LexerError::NonTerminatedNumber.into());
                     }
                     self.advance();
+
+                    if let Some(err) = err {
+                        return Some(err.into());
+                    }
                 }
             }
             Some('i') => {
@@ -533,7 +550,12 @@ impl Lexer {
             return Some(LexerError::InvalidNumericTerminator.into());
         }
 
-        Some(Token::Number { value: number }.into())
+        Some(
+            Token::Number {
+                value: Box::new(number),
+            }
+            .into(),
+        )
     }
 
     fn parse_real(
@@ -570,9 +592,9 @@ impl Lexer {
                 self.advance();
             }
 
-            self.decimal_suffix(&mut num)?;
+            let exponent = self.decimal_suffix()?;
 
-            return Ok(NumberString::Decimal(num.into()));
+            return Ok(NumberString::Decimal(num.into(), exponent));
         }
 
         if !Self::digits(number.radix).contains(next) {
@@ -605,8 +627,12 @@ impl Lexer {
                 // number with exponential suffix
                 // does not consume the peeked character as that is
                 // performed inside the suffix parsing
-                self.decimal_suffix(&mut num)?;
-                Ok(NumberString::Decimal(num.into()))
+                let exponent = self.decimal_suffix()?;
+
+                if number.radix != Some(Radix::Decimal) && number.radix != None {
+                    return Err(LexerError::DecimalRadix);
+                }
+                Ok(NumberString::Decimal(num.into(), exponent))
             }
             Some('#') => {
                 while self.peek_is(0, "#") {
@@ -628,18 +654,18 @@ impl Lexer {
                     self.advance();
                 }
 
-                self.decimal_suffix(&mut num)?;
+                let exponent = self.decimal_suffix()?;
 
-                Ok(NumberString::Decimal(num.into()))
+                if number.radix != Some(Radix::Decimal) && number.radix != None {
+                    return Err(LexerError::DecimalRadix);
+                }
+
+                Ok(NumberString::Decimal(num.into(), exponent))
             }
             Some('.') => {
                 // <digit 10>+ . <digit 10>* #* <suffix>
                 self.advance();
                 num.push('.');
-
-                if number.radix != Some(Radix::Decimal) && number.radix != None {
-                    return Err(LexerError::DecimalRadix);
-                }
 
                 while let Some(ch) = self.peek(0) {
                     if !Self::digits(Some(Radix::Decimal)).contains(ch) {
@@ -654,27 +680,31 @@ impl Lexer {
                     self.advance();
                 }
 
-                self.decimal_suffix(&mut num)?;
+                let exponent = self.decimal_suffix()?;
 
-                Ok(NumberString::Decimal(num.into()))
+                if number.radix != Some(Radix::Decimal) && number.radix != None {
+                    return Err(LexerError::DecimalRadix);
+                }
+
+                Ok(NumberString::Decimal(num.into(), exponent))
             }
             _ => Ok(NumberString::Integer(num.into())),
         }
     }
 
     /// Parse a single decimal prefix
-    fn decimal_suffix(&mut self, num: &mut String) -> Result<(), LexerError> {
-        let peek = match self.peek(0) {
+    fn decimal_suffix(&mut self) -> Result<Option<ExponentKind>, LexerError> {
+        let kind = match self.peek(0) {
             Some(peek) => {
                 if !"esfdl".contains(peek) {
-                    return Ok(());
+                    return Ok(None);
                 }
                 peek
             }
-            None => return Ok(()),
+            None => return Ok(None),
         };
 
-        num.push(peek);
+        let mut num = String::new();
         self.advance();
 
         let mut next = self.advance().ok_or(LexerError::NonTerminatedNumber)?;
@@ -698,7 +728,14 @@ impl Lexer {
             }
         }
 
-        Ok(())
+        Ok(Some(match kind {
+            'e' => ExponentKind::Exponential(num.into()),
+            's' => ExponentKind::Short(num.into()),
+            'f' => ExponentKind::Float(num.into()),
+            'd' => ExponentKind::Double(num.into()),
+            'l' => ExponentKind::Long(num.into()),
+            _ => unreachable!(),
+        }))
     }
 
     fn unsigned_integer(
