@@ -58,3 +58,9 @@ impl fmt::Display for Value {
         }
     }
 }
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}

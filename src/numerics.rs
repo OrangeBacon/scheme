@@ -4,7 +4,7 @@ use num_bigint::{BigInt, ParseBigIntError};
 use num_traits::{Num, Signed, ToPrimitive};
 use thiserror::Error;
 
-use crate::vm::Value;
+use crate::value::Value;
 
 #[derive(Debug, Error)]
 pub enum NumericError {

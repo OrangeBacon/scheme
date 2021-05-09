@@ -8,14 +8,20 @@ use anyhow::Result;
 use clap::{clap_app, crate_authors, crate_description, crate_version};
 use thiserror::Error;
 
-use crate::run::{RuntimeConfig, SourceFile};
+use crate::{
+    bytecode::{BytecodeChunk, OpCode},
+    numerics::Number,
+    run::{RuntimeConfig, SourceFile},
+    value::Value,
+};
 
+mod bytecode;
 mod info;
 mod lexer;
 mod numerics;
 mod parser;
 mod run;
-mod vm;
+mod value;
 
 /// Errors encountered while interpreting the input arguments
 #[derive(Debug, Error)]
@@ -148,6 +154,14 @@ fn run() -> Result<()> {
     }
 
     run::run(sources, config)?;
+
+    let mut bytecode = BytecodeChunk::new("Test Chunk");
+    let num = bytecode.write_constant(Value::Number(Number::Single(1.2)));
+    bytecode.write(OpCode::LoadConstant);
+    bytecode.write(num);
+    bytecode.write(OpCode::Return);
+
+    println!("{}", bytecode);
 
     Ok(())
 }
