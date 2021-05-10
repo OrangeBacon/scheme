@@ -10,9 +10,7 @@ use thiserror::Error;
 
 use crate::{
     bytecode::{BytecodeChunk, OpCode},
-    numerics::Number,
     run::{RuntimeConfig, SourceFile},
-    value::Value,
     vm::VM,
 };
 
@@ -20,6 +18,7 @@ mod bytecode;
 mod environment;
 mod info;
 mod lexer;
+mod memory;
 mod numerics;
 mod parser;
 mod run;
@@ -159,10 +158,11 @@ fn run() -> Result<()> {
     run::run(sources, config)?;
 
     let mut bytecode = BytecodeChunk::new("Test Chunk");
-    let num = bytecode.write_constant(Value::Number(Number::Single(1.2)));
+    let num = bytecode.single(1.2);
+    let num = bytecode.number(num);
     bytecode.location(11);
     bytecode.write(OpCode::LoadConstant);
-    bytecode.write(num);
+    bytecode.write(num as u8);
     bytecode.write(OpCode::Return);
 
     println!("{}", bytecode);

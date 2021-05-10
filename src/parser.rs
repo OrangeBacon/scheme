@@ -85,7 +85,7 @@ impl fmt::Debug for Expression {
                     write!(f, "#f")
                 }
             }
-            Expression::Number(num) => write!(f, "{}", num),
+            Expression::Number(num) => write!(f, "{:?}", num),
             Expression::Character(ch) => match ch {
                 ' ' => write!(f, "#\\space"),
                 '\n' => write!(f, "#\\newline"),

@@ -1,10 +1,10 @@
-use std::{borrow::Cow, fmt, num::ParseFloatError};
+use std::{borrow::Cow, num::ParseFloatError};
 
 use num_bigint::{BigInt, ParseBigIntError};
-use num_traits::{Num, Signed, ToPrimitive};
+use num_traits::{Num, ToPrimitive};
 use thiserror::Error;
 
-use crate::value::Value;
+use crate::{memory::Heap, value::Value};
 
 #[derive(Debug, Error)]
 pub enum NumericError {
@@ -77,17 +77,21 @@ pub enum ExponentKind {
 }
 
 /// Representation of a number
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum Number {
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct Number(pub(crate) NumberContent);
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub(crate) enum NumberContent {
     Integer(i64),
-    BigInteger(BigInt),
+    BigInteger(usize),
     Single(f32),
     Double(f64),
-    Real(Box<[BigInt; 2]>),
+    Rational(usize, usize),
 }
 
 /// Representation of a complex number
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct ComplexNumber {
     real: Number,
     imaginary: Number,
@@ -96,7 +100,8 @@ pub struct ComplexNumber {
 // implementations
 
 impl NumericLiteralString {
-    pub fn to_value(self) -> Result<Value, NumericError> {
+    /// Convert a string based number to a value on a given heap
+    pub fn to_value(self, heap: &mut Heap) -> Result<Value, NumericError> {
         let radix = self.radix.unwrap_or(Radix::Decimal);
         let exactness = self.exact;
 
@@ -108,45 +113,53 @@ impl NumericLiteralString {
             let magnitude = self.real.ok_or(NumericError::PolarMissingComponent)?;
             let angle = self.imaginary.ok_or(NumericError::PolarMissingComponent)?;
 
-            let magnitude = magnitude.to_number(radix, exactness)?;
-            let angle = angle.to_number(radix, exactness)?;
+            let magnitude = magnitude.to_number(heap, radix, exactness)?;
+            let angle = angle.to_number(heap, radix, exactness)?;
 
-            let magnitude = magnitude.to_f64().ok_or(NumericError::BigIntFloatConvert)?;
-            let angle = angle.to_f64().ok_or(NumericError::BigIntFloatConvert)?;
+            let magnitude = magnitude
+                .to_f64(heap)
+                .ok_or(NumericError::BigIntFloatConvert)?;
+            let angle = angle.to_f64(heap).ok_or(NumericError::BigIntFloatConvert)?;
 
             // for polar->rectangular conversion:
             // real = mag*cos(angle)
             // imaginary = mag*sin(angle)
 
-            Ok(Value::Complex(Box::new(ComplexNumber {
-                real: Number::Double(magnitude * angle.cos()),
-                imaginary: Number::Double(magnitude * angle.sin()),
-            })))
+            let real = heap.double(magnitude * angle.cos());
+            let imaginary = heap.double(magnitude * angle.sin());
+
+            Ok(heap.complex(real, imaginary))
         } else if self.imaginary.is_none() {
             let real = self
                 .real
-                .map(|num| num.to_number(radix, exactness))
-                .unwrap_or(Ok(Number::Integer(0)))?;
+                .map(|num| num.to_number(heap, radix, exactness))
+                .unwrap_or(Ok(heap.integer(0)))?;
 
-            Ok(Value::Number(real))
+            Ok(heap.number(real))
         } else {
             let real = self
                 .real
-                .map(|num| num.to_number(radix, exactness))
-                .unwrap_or(Ok(Number::Integer(0)))?;
+                .map(|num| num.to_number(heap, radix, exactness))
+                .unwrap_or(Ok(heap.integer(0)))?;
 
             let imaginary = self
                 .imaginary
-                .map(|num| num.to_number(radix, exactness))
-                .unwrap_or(Ok(Number::Integer(0)))?;
+                .map(|num| num.to_number(heap, radix, exactness))
+                .unwrap_or(Ok(heap.integer(0)))?;
 
-            Ok(Value::Complex(Box::new(ComplexNumber { real, imaginary })))
+            Ok(heap.complex(real, imaginary))
         }
     }
 }
 
 impl NumberString {
-    fn to_number(&self, radix: Radix, exactness: Option<bool>) -> Result<Number, NumericError> {
+    /// Convert a string based numeric component into a number on a heap
+    fn to_number(
+        &self,
+        heap: &mut Heap,
+        radix: Radix,
+        exactness: Option<bool>,
+    ) -> Result<Number, NumericError> {
         let radix_num = radix.to_number();
 
         match self {
@@ -168,13 +181,13 @@ impl NumberString {
                         | ExponentKind::Long(exp),
                     ) => {
                         let num = format!("{}e{}", val, exp);
-                        Ok(Number::Double(num.parse()?))
+                        Ok(heap.double(num.parse()?))
                     }
                     Some(ExponentKind::Float(exp) | ExponentKind::Short(exp)) => {
                         let num = format!("{}e{}", val, exp);
-                        Ok(Number::Single(num.parse()?))
+                        Ok(heap.single(num.parse()?))
                     }
-                    None => Ok(Number::Double(val.parse()?)),
+                    None => Ok(heap.double(val.parse()?)),
                 }
             }
             NumberString::Integer(val) => {
@@ -188,9 +201,9 @@ impl NumberString {
 
                 if let Ok(num) = i64::from_str_radix(&val, radix_num) {
                     if contains_hash || exactness == Some(false) {
-                        Ok(Number::Double(num as f64))
+                        Ok(heap.double(num as f64))
                     } else {
-                        Ok(Number::Integer(num))
+                        Ok(heap.integer(num))
                     }
                 } else {
                     // already validated the digits within the number, so if
@@ -200,11 +213,9 @@ impl NumberString {
                     if contains_hash || exactness == Some(false) {
                         // it is still worth going via a bigint as it allows
                         // integers larger than i64 to be made inexact
-                        Ok(Number::Double(
-                            num.to_f64().ok_or(NumericError::BigIntFloatConvert)?,
-                        ))
+                        Ok(heap.double(num.to_f64().ok_or(NumericError::BigIntFloatConvert)?))
                     } else {
-                        Ok(Number::BigInteger(num))
+                        Ok(heap.bigint(num))
                     }
                 }
             }
@@ -214,22 +225,18 @@ impl NumberString {
                 let numerator = numerator.replace('#', "0");
                 let denominator = denominator.replace('#', "0");
 
-                let numbers = [
-                    BigInt::from_str_radix(&numerator, radix_num)?,
-                    BigInt::from_str_radix(&denominator, radix_num)?,
-                ];
+                let numerator = BigInt::from_str_radix(&numerator, radix_num)?;
+                let denominator = BigInt::from_str_radix(&denominator, radix_num)?;
 
                 if contains_hash || exactness == Some(false) {
-                    let numerator = numbers[0]
-                        .to_f64()
-                        .ok_or(NumericError::BigIntFloatConvert)?;
-                    let denominator = numbers[1]
+                    let numerator = numerator.to_f64().ok_or(NumericError::BigIntFloatConvert)?;
+                    let denominator = denominator
                         .to_f64()
                         .ok_or(NumericError::BigIntFloatConvert)?;
 
-                    Ok(Number::Double(numerator / denominator))
+                    Ok(heap.double(numerator / denominator))
                 } else {
-                    Ok(Number::Real(Box::new(numbers)))
+                    Ok(heap.rational(numerator, denominator))
                 }
             }
         }
@@ -248,55 +255,22 @@ impl Radix {
 }
 
 impl Number {
-    fn to_f64(&self) -> Option<f64> {
+    fn to_f64(&self, heap: &mut Heap) -> Option<f64> {
         Some(match self {
-            Number::Integer(val) => *val as _,
-            Number::Single(val) => *val as _,
-            Number::Double(val) => *val,
+            Number(NumberContent::Integer(val)) => *val as _,
+            Number(NumberContent::Single(val)) => *val as _,
+            Number(NumberContent::Double(val)) => *val,
 
-            Number::BigInteger(val) => val.to_f64()?,
-            Number::Real(val) => val[0].to_f64()? / val[1].to_f64()?,
+            Number(NumberContent::BigInteger(idx)) => heap.get_bigint(*idx).to_f64()?,
+            Number(NumberContent::Rational(numerator, denominator)) => {
+                heap.get_bigint(*numerator).to_f64()? / heap.get_bigint(*denominator).to_f64()?
+            }
         })
     }
 }
 
-// Formatters
-
-impl fmt::Display for ComplexNumber {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let is_positive = match &self.imaginary {
-            Number::Integer(val) => val.is_positive(),
-            Number::BigInteger(val) => val.is_positive(),
-            Number::Single(val) => val.is_positive(),
-            Number::Double(val) => val.is_positive(),
-            Number::Real(val) => val[0].is_positive() && val[1].is_positive(),
-        };
-
-        let sign = if is_positive { "+" } else { "" };
-
-        write!(f, "{}{}{}i", self.real, sign, self.imaginary)
-    }
-}
-
-impl fmt::Display for Number {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Number::Integer(val) => write!(f, "{}", val),
-            Number::BigInteger(val) => write!(f, "{}", val),
-            Number::Single(val) => write!(f, "{}", val),
-            Number::Double(val) => write!(f, "{}", val),
-            Number::Real(val) => {
-                write!(f, "({} / {})", val[0], val[1])
-            }
-        }
-    }
-}
-
-impl fmt::Display for NumericLiteralString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.clone().to_value() {
-            Ok(val) => write!(f, "{}", val),
-            Err(_) => write!(f, "invalid_number"),
-        }
+impl ComplexNumber {
+    pub fn new(real: Number, imaginary: Number) -> Self {
+        Self { real, imaginary }
     }
 }

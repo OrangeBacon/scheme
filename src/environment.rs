@@ -1,6 +1,6 @@
-use lasso::Rodeo;
+use lasso::{Capacity, Rodeo};
 
-use crate::{parser::Parser, run::RuntimeConfig};
+use crate::{memory::Heap, parser::Parser, run::RuntimeConfig};
 
 #[derive(Debug)]
 pub struct Environment {
@@ -9,15 +9,24 @@ pub struct Environment {
 
     symbols: Rodeo,
     errors: Vec<anyhow::Error>,
+    heap: Heap,
 }
 
+// Environment kinds
+// - null => only keywords (quote, lambda, if, set!, begin, cond, and, or, case
+//                          let, let*, letrec, do, delay, quasiquote, else, =>,
+//                          define, unquote, unquote-splicing)
+// - scheme-report-environment 5 = r5rs => null + standard library
+// - interaction-environment => r5rs + sfri's + user supplied extra procedures
+
 impl Environment {
-    pub fn new(config: impl Into<RuntimeConfig>) -> Self {
+    pub fn null(config: impl Into<RuntimeConfig>) -> Self {
         Self {
-            files: vec![],
+            files: Vec::with_capacity(0),
             config: config.into(),
-            symbols: Rodeo::new(),
-            errors: vec![],
+            symbols: Rodeo::with_capacity(Capacity::minimal()),
+            errors: Vec::with_capacity(0),
+            heap: Heap::new(),
         }
     }
 

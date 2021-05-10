@@ -80,7 +80,7 @@ impl fmt::Display for Token {
                     write!(f, "Boolean #f")?
                 }
             }
-            Token::Number { value } => write!(f, "{}", value)?,
+            Token::Number { value } => write!(f, "{:?}", value)?,
             Token::Character { value } => write!(f, "Character {:?}", value)?,
             Token::String { value } => write!(f, "String {:?}", value)?,
             Token::Eof => write!(f, "EOF")?,

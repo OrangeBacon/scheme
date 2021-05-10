@@ -32,8 +32,7 @@ impl<'a> VM<'a> {
                 }
                 OpCode::LoadConstant => {
                     let id = self.read_byte();
-                    self.stack
-                        .push(self.bytecode.constants[id as usize].clone());
+                    self.stack.push(self.bytecode.get_constant(id as usize));
                 }
             }
         }
