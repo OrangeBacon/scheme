@@ -3,6 +3,7 @@ use std::{any::Any, fmt};
 use crate::numerics::{ComplexNumber, Number};
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub enum Value {
     Boolean(bool),
     Character(char),
@@ -12,7 +13,7 @@ pub enum Value {
     Pair([Box<Value>; 2]),
     Vector(Vec<Value>),
     NativeFunction(u32),
-    NativeValue(Box<dyn CustomSchemeValue>),
+    //NativeValue(Box<dyn CustomSchemeValue>),
 }
 
 pub trait CustomSchemeValue: Any + fmt::Display {}
@@ -55,7 +56,7 @@ impl fmt::Display for Value {
             Value::Complex(val) => write!(f, "{}", val),
             Value::Pair(val) => write!(f, "({} . {})", val[0], val[1]),
             Value::NativeFunction(val) => write!(f, "{{native fn {}}}", val),
-            Value::NativeValue(val) => write!(f, "{{native value: {:p}}}", val),
+            //Value::NativeValue(val) => write!(f, "{{native value: {:p}}}", val),
         }
     }
 }

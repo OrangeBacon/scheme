@@ -21,8 +21,9 @@ impl From<OpCode> for u8 {
 #[derive(Debug)]
 pub struct BytecodeChunk {
     name: Cow<'static, str>,
-    content: Vec<u8>,
-    constants: Vec<Value>,
+    pub(crate) content: Vec<u8>,
+    pub(crate) constants: Vec<Value>,
+    location_info: Vec<(usize, usize)>,
 }
 
 impl BytecodeChunk {
@@ -31,11 +32,19 @@ impl BytecodeChunk {
             name: name.into(),
             content: vec![],
             constants: vec![],
+            location_info: vec![(0, 0)],
         }
     }
 
+    pub fn location(&mut self, value: usize) {
+        self.location_info.push((value, 0));
+    }
+
     pub fn write(&mut self, value: impl Into<u8>) {
-        self.content.push(value.into())
+        self.content.push(value.into());
+
+        let latest_location = self.location_info.len() - 1;
+        self.location_info[latest_location].1 += 1;
     }
 
     pub fn write_constant(&mut self, value: impl Into<Value>) -> u8 {
@@ -54,9 +63,29 @@ impl fmt::Display for BytecodeChunk {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "=== {} ===", self.name)?;
 
+        let mut location_info_idx = 0;
+        let mut location_info_bytes_left = 0;
+
         let mut offset = 0;
         while offset < self.content.len() {
-            offset = self.disassemble_instruction(f, offset)?;
+            write!(f, "{:04} ", offset)?;
+
+            if location_info_bytes_left == 0 {
+                while location_info_bytes_left == 0 {
+                    location_info_bytes_left = self.location_info[location_info_idx].1;
+
+                    location_info_idx += 1;
+                }
+
+                write!(f, "{:>5} ", self.location_info[location_info_idx - 1].0)?;
+            } else {
+                write!(f, "    | ")?;
+            }
+
+            let bytes_consumed = self.disassemble_instruction(f, offset)?;
+
+            offset += bytes_consumed;
+            location_info_bytes_left = location_info_bytes_left.saturating_sub(bytes_consumed);
         }
 
         Ok(())
@@ -69,32 +98,25 @@ impl BytecodeChunk {
         f: &mut fmt::Formatter,
         offset: usize,
     ) -> Result<usize, fmt::Error> {
-        write!(f, "{:04} ", offset)?;
-
         let opcode = match OpCode::from_u8(self.content[offset]) {
             Some(val) => val,
             None => {
                 writeln!(f, "Unknown opcode")?;
-                return Ok(offset + 1);
+                return Ok(1);
             }
         };
 
         let offset = match opcode {
-            OpCode::Return => self.simple_instruction(f, "OP_RETURN", offset)?,
+            OpCode::Return => self.simple_instruction(f, "OP_RETURN")?,
             OpCode::LoadConstant => self.constant_instruction(f, "OP_LOAD_CONSTANT", offset)?,
         };
 
         Ok(offset)
     }
 
-    fn simple_instruction(
-        &self,
-        f: &mut fmt::Formatter,
-        name: &str,
-        offset: usize,
-    ) -> Result<usize, fmt::Error> {
+    fn simple_instruction(&self, f: &mut fmt::Formatter, name: &str) -> Result<usize, fmt::Error> {
         writeln!(f, "{}", name)?;
-        Ok(offset + 1)
+        Ok(1)
     }
 
     fn constant_instruction(
@@ -105,15 +127,15 @@ impl BytecodeChunk {
     ) -> Result<usize, fmt::Error> {
         if let Some(&id) = self.content.get(offset + 1) {
             if let Some(constant) = self.constants.get(id as usize) {
-                writeln!(f, "{}  id: {} => {}", name, id, constant)?;
+                writeln!(f, "{:<20} id: {} => {}", name, id, constant)?;
             } else {
-                writeln!(f, "{}  id: {} => invalid_constant", name, id)?;
+                writeln!(f, "{:<20} id: {} => invalid_constant", name, id)?;
             }
 
-            Ok(offset + 2)
+            Ok(2)
         } else {
-            writeln!(f, "{}  id => invalid_bytecode", name)?;
-            Ok(offset + 1)
+            writeln!(f, "{:<20}  id => invalid_bytecode", name)?;
+            Ok(1)
         }
     }
 }

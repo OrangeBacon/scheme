@@ -13,16 +13,18 @@ use crate::{
     numerics::Number,
     run::{RuntimeConfig, SourceFile},
     value::Value,
+    vm::VM,
 };
 
 mod bytecode;
+mod environment;
 mod info;
 mod lexer;
 mod numerics;
 mod parser;
 mod run;
 mod value;
-mod environment;
+mod vm;
 
 /// Errors encountered while interpreting the input arguments
 #[derive(Debug, Error)]
@@ -158,11 +160,15 @@ fn run() -> Result<()> {
 
     let mut bytecode = BytecodeChunk::new("Test Chunk");
     let num = bytecode.write_constant(Value::Number(Number::Single(1.2)));
+    bytecode.location(11);
     bytecode.write(OpCode::LoadConstant);
     bytecode.write(num);
     bytecode.write(OpCode::Return);
 
     println!("{}", bytecode);
+
+    let mut vm = VM::new(&bytecode);
+    vm.run();
 
     Ok(())
 }
