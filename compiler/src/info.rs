@@ -1,4 +1,4 @@
-const INFO: &str = include_str!("../docs/docs.txt");
+const INFO: &str = include_str!("../../docs/docs.txt");
 
 pub fn info(input: Option<&str>) {
     let info = parse_docs();
