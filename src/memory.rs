@@ -2,7 +2,7 @@ use num_bigint::BigInt;
 
 use crate::{
     numerics::{ComplexNumber, Number, NumberContent},
-    value::{CustomSchemeValue, Value, ValueContents},
+    value::{Value, ValueContents},
 };
 
 /// Heap storage for values, all values must be allocated through a heap.
@@ -17,7 +17,6 @@ pub struct Heap {
     string: Vec<String>,
     bigint: Vec<BigInt>,
     vec: Vec<Vec<Value>>,
-    native: Vec<Box<dyn CustomSchemeValue>>,
 }
 
 impl Heap {
@@ -27,7 +26,6 @@ impl Heap {
             string: Vec::with_capacity(0),
             bigint: Vec::with_capacity(0),
             vec: Vec::with_capacity(0),
-            native: Vec::with_capacity(0),
         }
     }
 
@@ -100,12 +98,6 @@ impl Heap {
         Number(NumberContent::Rational(numerator, denominator))
     }
 
-    /// Store an arbitrary value within the heap
-    pub fn native(&mut self, val: impl CustomSchemeValue) -> Value {
-        self.native.push(Box::new(val));
-        Value(ValueContents::NativeValue(self.native.len() - 1))
-    }
-
     /// Get a string from the heap
     pub fn get_string(&self, idx: usize) -> &str {
         &self.string[idx]
@@ -119,10 +111,5 @@ impl Heap {
     /// Get a vector of values from the heap
     pub fn get_vec(&self, idx: usize) -> &[Value] {
         &self.vec[idx]
-    }
-
-    /// Get a native value from the heap
-    pub fn get_native(&self, idx: usize) -> &dyn CustomSchemeValue {
-        &self.native[idx]
     }
 }

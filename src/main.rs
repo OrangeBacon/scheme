@@ -17,6 +17,7 @@ use crate::{
 mod bytecode;
 mod environment;
 mod info;
+mod ir;
 mod lexer;
 mod memory;
 mod numerics;
@@ -30,12 +31,6 @@ mod vm;
 enum InputError {
     #[error("Encountered errors while reading files:\n{files}")]
     FileError { files: IoErrorVec },
-
-    #[error("No input was provided")]
-    NoInput,
-
-    #[error("All sources provided were empty")]
-    AllEmpty,
 }
 
 /// New type wrapper to provide display impl
@@ -131,15 +126,6 @@ fn run() -> Result<()> {
         }
     } else {
         sources.push(get_stdin()?);
-    }
-
-    // no input provided, so nothing to do
-    if sources.is_empty() {
-        return Err(InputError::NoInput.into());
-    }
-
-    if sources.iter().all(|s| s.content.is_empty()) {
-        return Err(InputError::AllEmpty.into());
     }
 
     // get the base configuration

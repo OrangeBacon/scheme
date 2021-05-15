@@ -1,4 +1,4 @@
-use std::{any::Any, fmt};
+use std::fmt;
 
 use crate::numerics::{ComplexNumber, Number};
 
@@ -20,11 +20,7 @@ pub(crate) enum ValueContents {
     List(usize),
     Vector(usize),
     NativeFunction(u32),
-    NativeValue(usize),
 }
-
-pub trait CustomSchemeValue: Any + fmt::Debug + fmt::Display {}
-impl<T: Any + fmt::Debug + fmt::Display> CustomSchemeValue for T {}
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -59,7 +55,6 @@ impl fmt::Display for ValueContents {
             ValueContents::Complex(val) => write!(f, "{:?}", val),
             ValueContents::List(val) => write!(f, "(list {})", *val),
             ValueContents::NativeFunction(val) => write!(f, "{{native fn {}}}", val),
-            ValueContents::NativeValue(val) => write!(f, "{{native value: {:p}}}", val),
         }
     }
 }

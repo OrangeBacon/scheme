@@ -30,7 +30,13 @@ pub enum ParseError {
 /// Top level of a scheme file
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Program {
-    content: Vec<WithLocation<Expression>>,
+    content: Vec<WithLocation<Datum>>,
+}
+
+impl Program {
+    pub fn contents(&self) -> &[WithLocation<Datum>] {
+        &self.content
+    }
 }
 
 impl fmt::Display for Program {
@@ -43,7 +49,7 @@ impl fmt::Display for Program {
     }
 }
 
-struct SourcePrinter<'a>(&'a Vec<WithLocation<Expression>>);
+struct SourcePrinter<'a>(&'a Vec<WithLocation<Datum>>);
 
 impl<'a> fmt::Debug for SourcePrinter<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -58,42 +64,38 @@ impl<'a> fmt::Debug for SourcePrinter<'a> {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Expression {
+pub enum Datum {
     Boolean(bool),
     Number(Box<NumericLiteralString>),
     Character(char),
     String(String),
     Symbol(Spur),
     List {
-        values: Vec<WithLocation<Expression>>,
-        dot: Option<(WithLocation<()>, Box<Expression>)>,
+        values: Vec<WithLocation<Datum>>,
+        dot: Option<(WithLocation<()>, Box<Datum>)>,
     },
-    Vector(Vec<WithLocation<Expression>>),
-    Prefixed {
-        prefix: Prefix,
-        val: Box<WithLocation<Expression>>,
-    },
+    Vector(Vec<WithLocation<Datum>>),
 }
 
-impl fmt::Debug for Expression {
+impl fmt::Debug for Datum {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Expression::Boolean(val) => {
+            Datum::Boolean(val) => {
                 if *val {
                     write!(f, "#t")
                 } else {
                     write!(f, "#f")
                 }
             }
-            Expression::Number(num) => write!(f, "{:?}", num),
-            Expression::Character(ch) => match ch {
+            Datum::Number(num) => write!(f, "{:?}", num),
+            Datum::Character(ch) => match ch {
                 ' ' => write!(f, "#\\space"),
                 '\n' => write!(f, "#\\newline"),
                 ch => write!(f, "#\\{:?}", ch),
             },
-            Expression::String(val) => write!(f, "{:?}", val),
-            Expression::Symbol(val) => write!(f, "Symbol({})", val.into_usize()),
-            Expression::List { values, dot } => {
+            Datum::String(val) => write!(f, "{:?}", val),
+            Datum::Symbol(val) => write!(f, "Symbol({})", val.into_usize()),
+            Datum::List { values, dot } => {
                 let mut tuple = f.debug_tuple("");
                 for val in values {
                     tuple.field(val.content());
@@ -105,7 +107,7 @@ impl fmt::Debug for Expression {
 
                 tuple.finish()
             }
-            Expression::Vector(content) => {
+            Datum::Vector(content) => {
                 let mut tuple = f.debug_tuple("#");
                 for val in content {
                     tuple.field(val.content());
@@ -113,35 +115,13 @@ impl fmt::Debug for Expression {
 
                 tuple.finish()
             }
-            Expression::Prefixed { prefix, val } => {
-                write!(f, "{}{}", prefix, val.content())
-            }
         }
     }
 }
 
-impl fmt::Display for Expression {
+impl fmt::Display for Datum {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:#?}", self)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Prefix {
-    Quote,
-    BackQuote,
-    Comma,
-    CommaAt,
-}
-
-impl fmt::Display for Prefix {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Prefix::Quote => write!(f, "'"),
-            Prefix::BackQuote => write!(f, "`"),
-            Prefix::Comma => write!(f, ","),
-            Prefix::CommaAt => write!(f, ",@"),
-        }
     }
 }
 
@@ -183,17 +163,15 @@ impl<'a> Parser<'a> {
     /// Any valid expression will parse successfully as a datum, so this is
     /// the expression parser, however not every datum is a valid expression
     /// If unable to parse a datum, returns None and stores the error in self.
-    fn parse_datum(&mut self) -> Option<WithLocation<Expression>> {
+    fn parse_datum(&mut self) -> Option<WithLocation<Datum>> {
         let (tok, loc) = self.advance().split();
 
         match tok {
-            Token::Boolean { value } => Some(WithLocation::join(Expression::Boolean(value), loc)),
-            Token::Number { value } => Some(WithLocation::join(Expression::Number(value), loc)),
-            Token::Character { value } => {
-                Some(WithLocation::join(Expression::Character(value), loc))
-            }
-            Token::String { value } => Some(WithLocation::join(Expression::String(value), loc)),
-            Token::Identifier { value } => Some(WithLocation::join(Expression::Symbol(value), loc)),
+            Token::Boolean { value } => Some(WithLocation::join(Datum::Boolean(value), &loc)),
+            Token::Number { value } => Some(WithLocation::join(Datum::Number(value), &loc)),
+            Token::Character { value } => Some(WithLocation::join(Datum::Character(value), &loc)),
+            Token::String { value } => Some(WithLocation::join(Datum::String(value), &loc)),
+            Token::Identifier { value } => Some(WithLocation::join(Datum::Symbol(value), &loc)),
 
             Token::VecStart => Some(self.parse_vector(loc)),
 
@@ -205,7 +183,7 @@ impl<'a> Parser<'a> {
 
             _ => {
                 self.emit_error(ParseError::UnexpectedToken {
-                    token: WithLocation::join(tok, loc),
+                    token: WithLocation::join(tok, &loc),
                 });
                 None
             }
@@ -213,7 +191,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a vector #( <datum>* )
-    fn parse_vector(&mut self, start_loc: WithLocation<()>) -> WithLocation<Expression> {
+    fn parse_vector(&mut self, start_loc: WithLocation<()>) -> WithLocation<Datum> {
         let mut elements = vec![];
         loop {
             if self.peek().matches(&[Token::RightParen, Token::Eof]) {
@@ -237,7 +215,7 @@ impl<'a> Parser<'a> {
         let (_, loc) = tok.split();
         let loc = start_loc.extend(&loc);
 
-        WithLocation::join(Expression::Vector(elements), loc)
+        WithLocation::join(Datum::Vector(elements), &loc)
     }
 
     /// Parse an abbreviation, ('|`|,|,@) <datum>
@@ -245,12 +223,12 @@ impl<'a> Parser<'a> {
         &mut self,
         start_loc: WithLocation<()>,
         start: Token,
-    ) -> Option<WithLocation<Expression>> {
+    ) -> Option<WithLocation<Datum>> {
         let prefix = match start {
-            Token::Quote => Prefix::Quote,
-            Token::BackQuote => Prefix::BackQuote,
-            Token::Comma => Prefix::Comma,
-            Token::CommaAt => Prefix::CommaAt,
+            Token::Quote => self.env.symbols().get_or_intern("quote"),
+            Token::BackQuote => self.env.symbols().get_or_intern("quasiquote"),
+            Token::Comma => self.env.symbols().get_or_intern("unquote"),
+            Token::CommaAt => self.env.symbols().get_or_intern("unquote-splicing"),
             _ => unreachable!(),
         };
 
@@ -261,11 +239,14 @@ impl<'a> Parser<'a> {
             let loc = start_loc.extend(&end);
 
             Some(WithLocation::join(
-                Expression::Prefixed {
-                    prefix: prefix,
-                    val: Box::new(WithLocation::join(content, end)),
+                Datum::List {
+                    values: vec![
+                        WithLocation::join(Datum::Symbol(prefix), &start_loc),
+                        WithLocation::join(content, &loc),
+                    ],
+                    dot: None,
                 },
-                loc,
+                &loc,
             ))
         } else {
             None
@@ -273,7 +254,7 @@ impl<'a> Parser<'a> {
     }
 
     /// parses lists, syntax: (<datum>*) | (<datum>+ . <datum>)
-    fn parse_list(&mut self, start_loc: WithLocation<()>) -> WithLocation<Expression> {
+    fn parse_list(&mut self, start_loc: WithLocation<()>) -> WithLocation<Datum> {
         let mut values = vec![];
 
         let mut started = false;
@@ -323,7 +304,7 @@ impl<'a> Parser<'a> {
         let (_, loc) = tok.split();
         let loc = start_loc.extend(&loc);
 
-        WithLocation::join(Expression::List { values, dot }, loc)
+        WithLocation::join(Datum::List { values, dot }, &loc)
     }
 
     /// get the next token without consuming it
@@ -343,9 +324,9 @@ impl<'a> Parser<'a> {
         loop {
             let tok = lexer.get_token_loc(env);
             match tok.split() {
-                (ErrorToken::Token(t), loc) => return WithLocation::join(t, loc),
+                (ErrorToken::Token(t), loc) => return WithLocation::join(t, &loc),
                 (ErrorToken::Error(err), loc) => env.emit_error(ParseError::InvalidToken {
-                    err: WithLocation::join(err, loc),
+                    err: WithLocation::join(err, &loc),
                 }),
             }
         }

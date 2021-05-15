@@ -119,7 +119,7 @@ impl From<LexerError> for ErrorToken {
 }
 
 /// Wrapper providing source location information for a type
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WithLocation<T> {
     /// The file being parsed, an index into the environment's file list
     file: usize,
@@ -154,7 +154,7 @@ impl<T> WithLocation<T> {
     }
 
     /// Join location data with different contents
-    pub fn join<U>(val: T, loc: WithLocation<U>) -> WithLocation<T> {
+    pub fn join<U>(val: T, loc: &WithLocation<U>) -> WithLocation<T> {
         WithLocation {
             content: val,
             file: loc.file,
@@ -170,6 +170,16 @@ impl<T> WithLocation<T> {
         WithLocation {
             length: other.start_offset + other.length - self.start_offset,
             ..self
+        }
+    }
+
+    /// Extract the location without consuming the contents
+    pub fn extract(&self) -> WithLocation<()> {
+        WithLocation {
+            file: self.file,
+            length: self.length,
+            start_offset: self.start_offset,
+            content: (),
         }
     }
 }
