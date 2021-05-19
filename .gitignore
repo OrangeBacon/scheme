@@ -1,2 +1,4 @@
 /target
 /.vscode
+/vscode-lsp/node_modules
+/vscode-lsp/out
