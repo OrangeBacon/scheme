@@ -62,6 +62,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "compiler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "lasso",
+ "num-bigint",
+ "num-derive",
+ "num-traits",
+ "thiserror",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -159,10 +171,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "lasso",
- "num-bigint",
- "num-derive",
- "num-traits",
+ "compiler",
  "strsim",
  "thiserror",
 ]

@@ -8,23 +8,14 @@ use anyhow::Result;
 use clap::{clap_app, crate_authors, crate_description, crate_version};
 use thiserror::Error;
 
-use crate::{
+use compiler::{
     bytecode::{BytecodeChunk, OpCode},
+    run,
     run::{RuntimeConfig, SourceFile},
     vm::VM,
 };
 
-mod bytecode;
-mod environment;
 mod info;
-mod ir;
-mod lexer;
-mod memory;
-mod numerics;
-mod parser;
-mod run;
-mod value;
-mod vm;
 
 /// Errors encountered while interpreting the input arguments
 #[derive(Debug, Error)]
