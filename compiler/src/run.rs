@@ -65,9 +65,9 @@ pub fn run(sources: Vec<SourceFile>, config: RuntimeConfig) -> Result<()> {
         );
         env.run(main);
 
-        if !env.symbols().is_empty() {
+        if !env.symbols_mut().is_empty() {
             println!("strings: [");
-            for (idx, string) in env.symbols().iter() {
+            for (idx, string) in env.symbols_mut().iter() {
                 println!("    {}: {}", idx.into_usize(), string);
             }
             println!("]");

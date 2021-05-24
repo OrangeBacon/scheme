@@ -1,13 +1,7 @@
 use lasso::Spur;
 use thiserror::Error;
 
-use crate::{
-    environment::Environment,
-    lexer::WithLocation,
-    numerics::NumericError,
-    parser::{Datum, Program},
-    value::Value,
-};
+use crate::{environment::Environment, lexer::WithLocation, numerics::NumericError, parser::{Datum, ProgramPrinter, Program}, value::Value};
 
 #[derive(Debug, Error)]
 pub enum IrParseError {
@@ -49,7 +43,7 @@ impl<'a> IrBuilder<'a> {
     /// requires that the datum was created in the same environment
     /// that is passed to this function.
     pub fn build(datum: &Program, env: &'a mut Environment) -> Result<Ir, IrParseError> {
-        println!("{:#}", datum);
+        println!("{}", ProgramPrinter::new(datum, env));
 
         if datum.contents().is_empty() {
             return Err(IrParseError::EmptySource);

@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, ops::Range};
 
 use anyhow::Result;
 use lasso::Spur;
@@ -182,6 +182,14 @@ impl<T> WithLocation<T> {
             content: (),
         }
     }
+
+    pub fn file_idx(&self) -> usize {
+        self.file
+    }
+
+    pub fn source_range(&self) -> Range<usize> {
+        self.start_offset..(self.start_offset + self.length)
+    }
 }
 
 impl<T: fmt::Display> fmt::Display for WithLocation<T> {
@@ -284,7 +292,7 @@ impl Lexer {
         if next == '+' && self.is_delimiter(self.peek(0), env) {
             return Some(
                 Token::Identifier {
-                    value: env.symbols().get_or_intern_static("+"),
+                    value: env.symbols_mut().get_or_intern_static("+"),
                 }
                 .into(),
             );
@@ -293,7 +301,7 @@ impl Lexer {
         if next == '-' && self.is_delimiter(self.peek(0), env) {
             return Some(
                 Token::Identifier {
-                    value: env.symbols().get_or_intern_static("-"),
+                    value: env.symbols_mut().get_or_intern_static("-"),
                 }
                 .into(),
             );
@@ -308,7 +316,7 @@ impl Lexer {
             self.advance();
             return Some(
                 Token::Identifier {
-                    value: env.symbols().get_or_intern_static("..."),
+                    value: env.symbols_mut().get_or_intern_static("..."),
                 }
                 .into(),
             );
@@ -339,7 +347,7 @@ impl Lexer {
 
             return Some(
                 Token::Identifier {
-                    value: env.symbols().get_or_intern(ident),
+                    value: env.symbols_mut().get_or_intern(ident),
                 }
                 .into(),
             );
@@ -925,5 +933,9 @@ impl Lexer {
     /// count == 1 => peekNext
     fn peek(&self, count: usize) -> Option<char> {
         self.source.get(self.current + count).copied()
+    }
+
+    pub fn file_idx(&self) -> usize {
+        self.file_idx
     }
 }

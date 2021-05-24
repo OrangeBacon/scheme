@@ -1,4 +1,7 @@
-use std::fmt;
+use std::{
+    cell::RefCell,
+    fmt::{self, Display},
+};
 
 use lasso::{Key, Spur};
 use thiserror::Error;
@@ -30,6 +33,7 @@ pub enum ParseError {
 /// Top level of a scheme file
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Program {
+    file_idx: usize,
     content: Vec<WithLocation<Datum>>,
 }
 
@@ -39,31 +43,7 @@ impl Program {
     }
 }
 
-impl fmt::Display for Program {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut out = f.debug_struct("Program");
-
-        out.field("source", &SourcePrinter(&self.content));
-
-        out.finish()
-    }
-}
-
-struct SourcePrinter<'a>(&'a Vec<WithLocation<Datum>>);
-
-impl<'a> fmt::Debug for SourcePrinter<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut out = f.debug_list();
-
-        for element in self.0 {
-            out.entry(element.content());
-        }
-
-        out.finish()
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Datum {
     Boolean(bool),
     Number(Box<NumericLiteralString>),
@@ -72,51 +52,9 @@ pub enum Datum {
     Symbol(Spur),
     List {
         values: Vec<WithLocation<Datum>>,
-        dot: Option<(WithLocation<()>, Box<Datum>)>,
+        dot: Option<(WithLocation<()>, Box<WithLocation<Datum>>)>,
     },
     Vector(Vec<WithLocation<Datum>>),
-}
-
-impl fmt::Debug for Datum {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Datum::Boolean(val) => {
-                if *val {
-                    write!(f, "#t")
-                } else {
-                    write!(f, "#f")
-                }
-            }
-            Datum::Number(num) => write!(f, "{:?}", num),
-            Datum::Character(ch) => match ch {
-                ' ' => write!(f, "#\\space"),
-                '\n' => write!(f, "#\\newline"),
-                ch => write!(f, "#\\{:?}", ch),
-            },
-            Datum::String(val) => write!(f, "{:?}", val),
-            Datum::Symbol(val) => write!(f, "Symbol({})", val.into_usize()),
-            Datum::List { values, dot } => {
-                let mut tuple = f.debug_tuple("");
-                for val in values {
-                    tuple.field(val.content());
-                }
-
-                if let Some((_, val)) = dot {
-                    tuple.field(val);
-                }
-
-                tuple.finish()
-            }
-            Datum::Vector(content) => {
-                let mut tuple = f.debug_tuple("#");
-                for val in content {
-                    tuple.field(val.content());
-                }
-
-                tuple.finish()
-            }
-        }
-    }
 }
 
 impl fmt::Display for Datum {
@@ -156,7 +94,10 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Program { content }
+        Program {
+            content,
+            file_idx: self.lexer.file_idx(),
+        }
     }
 
     /// Parses a single datum.
@@ -225,10 +166,10 @@ impl<'a> Parser<'a> {
         start: Token,
     ) -> Option<WithLocation<Datum>> {
         let prefix = match start {
-            Token::Quote => self.env.symbols().get_or_intern("quote"),
-            Token::BackQuote => self.env.symbols().get_or_intern("quasiquote"),
-            Token::Comma => self.env.symbols().get_or_intern("unquote"),
-            Token::CommaAt => self.env.symbols().get_or_intern("unquote-splicing"),
+            Token::Quote => self.env.symbols_mut().get_or_intern("quote"),
+            Token::BackQuote => self.env.symbols_mut().get_or_intern("quasiquote"),
+            Token::Comma => self.env.symbols_mut().get_or_intern("unquote"),
+            Token::CommaAt => self.env.symbols_mut().get_or_intern("unquote-splicing"),
             _ => unreachable!(),
         };
 
@@ -282,8 +223,8 @@ impl<'a> Parser<'a> {
         if tok.matches(&Token::Dot) {
             // try to get the value after the dot
             dot = if let Some(after) = self.parse_datum() {
-                let (value, loc) = after.split();
-                Some((loc, Box::new(value)))
+                let (_, loc) = tok.split();
+                Some((loc, Box::new(after)))
             } else {
                 self.emit_error(ParseError::ExpectedExpression);
                 None
@@ -380,4 +321,164 @@ impl WithLocation<Token> {
             false
         }
     }
+}
+
+/// Pretty printer for a program (Datum) in context of its environment
+pub struct ProgramPrinter<'a, 'b> {
+    program: &'a Program,
+    env: &'b Environment,
+}
+
+impl<'a, 'b> ProgramPrinter<'a, 'b> {
+    /// Construct a new datum pretty printer
+    pub fn new(program: &'a Program, env: &'b Environment) -> Self {
+        Self { program, env }
+    }
+}
+
+impl<'a, 'b> Display for ProgramPrinter<'a, 'b> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let depth = RefCell::new(vec![]);
+
+        writeln!(f, "file `{}`:", self.env.files()[self.program.file_idx].0)?;
+        for datum in &self.program.content {
+            let printer = DatumPrintWrapper {
+                program: self,
+                datum,
+                depth: &depth,
+            };
+            write!(f, "{}", printer)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum DepthInfo {
+    Continue,
+    End,
+    None,
+}
+
+struct DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
+    program: &'c ProgramPrinter<'a, 'b>,
+    datum: &'d WithLocation<Datum>,
+    depth: &'e RefCell<Vec<DepthInfo>>,
+}
+
+impl<'a, 'b, 'c, 'd, 'e> DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
+    fn print_many(
+        &self,
+        f: &mut fmt::Formatter,
+        values: &[WithLocation<Datum>],
+        at_end: bool,
+    ) -> fmt::Result {
+        for (idx, item) in values.iter().enumerate() {
+            if at_end && idx == values.len() - 1 {
+                let mut depth = self.depth.borrow_mut();
+                depth.pop();
+                depth.push(DepthInfo::End);
+            }
+
+            let printer = DatumPrintWrapper {
+                program: self.program,
+                datum: item,
+                depth: &self.depth,
+            };
+            write!(f, "{}", printer)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<'a, 'b, 'c, 'd, 'e> Display for DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        print_depth(f, &self.depth)?;
+        match self.datum.content() {
+            Datum::Boolean(val) => {
+                write!(f, "boolean ")?;
+                if *val {
+                    write!(f, "#t")?;
+                } else {
+                    write!(f, "#f")?;
+                }
+                print_location(f, self.datum.extract())?;
+            }
+            Datum::Number(val) => {
+                write!(f, "number {:?}", val)?;
+                print_location(f, self.datum.extract())?;
+            }
+            Datum::Character(val) => {
+                write!(f, "character {:?}", *val)?;
+                print_location(f, self.datum.extract())?;
+            }
+            Datum::String(val) => {
+                write!(f, "string {:?}", val)?;
+                print_location(f, self.datum.extract())?;
+            }
+            Datum::Symbol(val) => {
+                write!(
+                    f,
+                    "symbol {}: {:?}",
+                    val.into_usize(),
+                    self.program.env.symbols().resolve(val)
+                )?;
+                print_location(f, self.datum.extract())?;
+            }
+            Datum::List { values, dot } => {
+                write!(f, "list")?;
+                if dot.is_some() {
+                    write!(f, " with dot expression")?;
+                }
+                print_location(f, self.datum.extract())?;
+
+                self.depth.borrow_mut().push(DepthInfo::Continue);
+                self.print_many(f, values, dot.is_none())?;
+                if let Some((_, dot)) = dot {
+                    self.print_many(f, std::slice::from_ref(dot), true)?;
+                }
+                self.depth.borrow_mut().pop();
+            }
+            Datum::Vector(values) => {
+                write!(f, "vector")?;
+                print_location(f, self.datum.extract())?;
+
+                self.depth.borrow_mut().push(DepthInfo::Continue);
+                self.print_many(f, values, true)?;
+                self.depth.borrow_mut().pop();
+            }
+        }
+        Ok(())
+    }
+}
+
+fn print_depth(f: &mut fmt::Formatter, depth_data: &RefCell<Vec<DepthInfo>>) -> fmt::Result {
+    if depth_data.borrow().is_empty() {
+        return Ok(());
+    }
+
+    let end_idx = depth_data.borrow().len() - 1;
+    let mut depth_data = depth_data.borrow_mut();
+
+    for (idx, depth) in depth_data.iter_mut().enumerate() {
+        if idx == end_idx && *depth == DepthInfo::Continue {
+            write!(f, "|- ")?;
+            continue;
+        }
+        match *depth {
+            DepthInfo::Continue => write!(f, "|  ")?,
+            DepthInfo::End => write!(f, r"\- ")?,
+            DepthInfo::None => write!(f, "   ")?,
+        }
+        if *depth == DepthInfo::End {
+            *depth = DepthInfo::None;
+        }
+    }
+    Ok(())
+}
+
+fn print_location(f: &mut fmt::Formatter, loc: WithLocation<()>) -> fmt::Result {
+    let range = loc.source_range();
+    writeln!(f, " {}-{}", range.start, range.end)
 }

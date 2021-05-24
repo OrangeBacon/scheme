@@ -58,7 +58,11 @@ impl Environment {
         &self.files
     }
 
-    pub fn symbols(&mut self) -> &mut Rodeo {
+    pub fn symbols(&self) -> &Rodeo {
+        &self.symbols
+    }
+
+    pub fn symbols_mut(&mut self) -> &mut Rodeo {
         &mut self.symbols
     }
 
