@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::{
     environment::Environment,
-    lexer::{ErrorToken, Lexer, LexerError, Token, WithLocation},
+    lexer::{Lexer, LexerError, Token, WithLocation},
     numerics::NumericLiteralString,
 };
 
@@ -109,10 +109,12 @@ impl<'a> Parser<'a> {
 
         match tok {
             Token::Boolean { value } => Some(WithLocation::join(Datum::Boolean(value), &loc)),
-            Token::Number { value } => Some(WithLocation::join(Datum::Number(value), &loc)),
-            Token::Character { value } => Some(WithLocation::join(Datum::Character(value), &loc)),
-            Token::String { value } => Some(WithLocation::join(Datum::String(value), &loc)),
-            Token::Identifier { value } => Some(WithLocation::join(Datum::Symbol(value), &loc)),
+            Token::Number { value, .. } => Some(WithLocation::join(Datum::Number(value), &loc)),
+            Token::Character { value, .. } => {
+                Some(WithLocation::join(Datum::Character(value), &loc))
+            }
+            Token::String { value, .. } => Some(WithLocation::join(Datum::String(value), &loc)),
+            Token::Identifier { value, .. } => Some(WithLocation::join(Datum::Symbol(value), &loc)),
 
             Token::VecStart => Some(self.parse_vector(loc)),
 
@@ -264,11 +266,15 @@ impl<'a> Parser<'a> {
     fn advance_lexer(lexer: &mut Lexer, env: &mut Environment) -> WithLocation<Token> {
         loop {
             let tok = lexer.get_token_loc(env);
-            match tok.split() {
-                (ErrorToken::Token(t), loc) => return WithLocation::join(t, &loc),
-                (ErrorToken::Error(err), loc) => env.emit_error(ParseError::InvalidToken {
-                    err: WithLocation::join(err, &loc),
-                }),
+            match tok.content() {
+                Token::Error { .. } => {
+                    if let (Token::Error { error }, loc) = tok.split() {
+                        env.emit_error(ParseError::InvalidToken {
+                            err: WithLocation::join(error, &loc),
+                        });
+                    }
+                }
+                _ => return tok,
             }
         }
     }

@@ -40,7 +40,7 @@ pub enum NumericError {
 }
 
 /// Data required for storing a number as a series of strings
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NumericLiteralString {
     pub radix: Option<Radix>,
     pub exact: Option<bool>,

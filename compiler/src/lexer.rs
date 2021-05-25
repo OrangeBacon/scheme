@@ -53,12 +53,29 @@ pub enum Token {
     Comma,
     CommaAt,
     Dot,
-    Identifier { value: Spur },
-    Boolean { value: bool },
-    Number { value: Box<NumericLiteralString> },
-    Character { value: char },
-    String { value: String },
+    Identifier {
+        value: Spur,
+        error: Option<LexerError>,
+    },
+    Boolean {
+        value: bool,
+    },
+    Number {
+        value: Box<NumericLiteralString>,
+        error: Option<LexerError>,
+    },
+    Character {
+        value: char,
+        error: Option<LexerError>,
+    },
+    String {
+        value: String,
+        error: Option<LexerError>,
+    },
     Eof,
+    Error {
+        error: LexerError,
+    },
 }
 
 impl fmt::Display for Token {
@@ -72,7 +89,12 @@ impl fmt::Display for Token {
             Token::Comma => write!(f, "Comma ','")?,
             Token::CommaAt => write!(f, "Comma at ',@'")?,
             Token::Dot => write!(f, "Dot '.'")?,
-            Token::Identifier { value } => write!(f, "Identifier {:?}", value)?,
+            Token::Identifier { value, error } => {
+                write!(f, "Identifier {:?}", value)?;
+                if error.is_some() {
+                    write!(f, " with error")?;
+                }
+            }
             Token::Boolean { value } => {
                 if *value {
                     write!(f, "Boolean #t")?
@@ -80,41 +102,29 @@ impl fmt::Display for Token {
                     write!(f, "Boolean #f")?
                 }
             }
-            Token::Number { value } => write!(f, "{:?}", value)?,
-            Token::Character { value } => write!(f, "Character {:?}", value)?,
-            Token::String { value } => write!(f, "String {:?}", value)?,
+            Token::Number { value, error } => {
+                write!(f, "{:?}", value)?;
+                if error.is_some() {
+                    write!(f, " with error")?;
+                }
+            }
+            Token::Character { value, error } => {
+                write!(f, "Character {:?}", value)?;
+                if error.is_some() {
+                    write!(f, " with error")?;
+                }
+            }
+            Token::String { value, error } => {
+                write!(f, "String {:?}", value)?;
+                if error.is_some() {
+                    write!(f, " with error")?;
+                }
+            }
             Token::Eof => write!(f, "EOF")?,
+            Token::Error { error } => write!(f, "{}", error)?,
         }
 
         Ok(())
-    }
-}
-
-/// Wrapper type to provide errors or tokens
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ErrorToken {
-    Token(Token),
-    Error(LexerError),
-}
-
-impl fmt::Display for ErrorToken {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ErrorToken::Token(tok) => write!(f, "{}", tok),
-            ErrorToken::Error(err) => write!(f, "{}", err),
-        }
-    }
-}
-
-impl From<Token> for ErrorToken {
-    fn from(t: Token) -> Self {
-        ErrorToken::Token(t)
-    }
-}
-
-impl From<LexerError> for ErrorToken {
-    fn from(e: LexerError) -> Self {
-        ErrorToken::Error(e)
     }
 }
 
@@ -232,7 +242,7 @@ impl Lexer {
     }
 
     /// Get the next token and its source location
-    pub fn get_token_loc(&mut self, env: &mut Environment) -> WithLocation<ErrorToken> {
+    pub fn get_token_loc(&mut self, env: &mut Environment) -> WithLocation<Token> {
         // need to skip whitespace before recording line and column positions
         // otherwise the whitespace will be included in the token's source
         // location
@@ -251,7 +261,7 @@ impl Lexer {
     }
 
     /// Get the next token from the source
-    pub fn get_token(&mut self, env: &mut Environment) -> ErrorToken {
+    pub fn get_token(&mut self, env: &mut Environment) -> Token {
         self.skip_whitespace(env);
         self.start = self.current;
 
@@ -280,19 +290,21 @@ impl Lexer {
             return tok;
         }
 
-        LexerError::UnexpectedChars {
-            chars: next.to_string(),
+        Token::Error {
+            error: LexerError::UnexpectedChars {
+                chars: next.to_string(),
+            },
         }
-        .into()
     }
 
     /// Parse a new identifier
-    fn parse_identifier(&mut self, next: char, env: &mut Environment) -> Option<ErrorToken> {
+    fn parse_identifier(&mut self, next: char, env: &mut Environment) -> Option<Token> {
         // peculiar identifiers  '+', '-', '...'
         if next == '+' && self.is_delimiter(self.peek(0), env) {
             return Some(
                 Token::Identifier {
                     value: env.symbols_mut().get_or_intern_static("+"),
+                    error: None,
                 }
                 .into(),
             );
@@ -302,6 +314,7 @@ impl Lexer {
             return Some(
                 Token::Identifier {
                     value: env.symbols_mut().get_or_intern_static("-"),
+                    error: None,
                 }
                 .into(),
             );
@@ -317,6 +330,7 @@ impl Lexer {
             return Some(
                 Token::Identifier {
                     value: env.symbols_mut().get_or_intern_static("..."),
+                    error: None,
                 }
                 .into(),
             );
@@ -341,13 +355,16 @@ impl Lexer {
                 }
             }
 
-            if !self.is_delimiter(self.peek(0), env) {
-                return Some(LexerError::InvalidIdentifier.into());
-            }
+            let error = if !self.is_delimiter(self.peek(0), env) {
+                Some(LexerError::InvalidIdentifier)
+            } else {
+                None
+            };
 
             return Some(
                 Token::Identifier {
                     value: env.symbols_mut().get_or_intern(ident),
+                    error,
                 }
                 .into(),
             );
@@ -357,7 +374,7 @@ impl Lexer {
     }
 
     /// Parse a boolean true or false
-    fn parse_boolean(&mut self, next: char) -> Option<ErrorToken> {
+    fn parse_boolean(&mut self, next: char) -> Option<Token> {
         if next == '#' && self.peek_is(0, "tfTF") {
             self.advance();
             return Some(
@@ -372,7 +389,7 @@ impl Lexer {
     }
 
     /// Parse any kind of generic numeric literal
-    fn parse_number(&mut self, mut next: char, env: &mut Environment) -> Option<ErrorToken> {
+    fn parse_number(&mut self, mut next: char, env: &mut Environment) -> Option<Token> {
         let mut number = NumericLiteralString {
             radix: None,
             exact: None,
@@ -402,6 +419,16 @@ impl Lexer {
             }
         }
 
+        let error = |num, error| -> Option<Token> {
+            Some(
+                Token::Number {
+                    value: Box::new(num),
+                    error: Some(error),
+                }
+                .into(),
+            )
+        };
+
         if next == '#' {
             let mut peek = self.peek(0)?;
             number.radix = match_radix(peek);
@@ -411,12 +438,12 @@ impl Lexer {
                 self.advance();
                 next = match self.advance() {
                     Some(c) => c,
-                    None => return Some(LexerError::NonTerminatedNumber.into()),
+                    None => return error(number, LexerError::NonTerminatedNumber),
                 };
                 if next == '#' {
                     peek = match self.advance() {
                         Some(c) => c,
-                        None => return Some(LexerError::NonTerminatedNumber.into()),
+                        None => return error(number, LexerError::NonTerminatedNumber),
                     };
 
                     if number.radix == None {
@@ -426,12 +453,12 @@ impl Lexer {
                     }
 
                     if number.exact == None || number.radix == None {
-                        return Some(LexerError::InvalidNumericPrefix.into());
+                        return error(number, LexerError::InvalidNumericPrefix);
                     }
 
                     next = match self.advance() {
                         Some(c) => c,
-                        None => return Some(LexerError::NonTerminatedNumber.into()),
+                        None => return error(number, LexerError::NonTerminatedNumber),
                     }
                 }
             }
@@ -449,12 +476,13 @@ impl Lexer {
             }
 
             if !self.is_delimiter(self.peek(0), env) {
-                return Some(LexerError::InvalidNumericTerminator.into());
+                return error(number, LexerError::InvalidNumericTerminator);
             }
 
             return Some(
                 Token::Number {
                     value: Box::new(number),
+                    error: None,
                 }
                 .into(),
             );
@@ -464,7 +492,7 @@ impl Lexer {
             Ok(num) => num,
             Err(err) => {
                 if started {
-                    return Some(err.into());
+                    return error(number, err);
                 } else {
                     return None;
                 }
@@ -480,7 +508,7 @@ impl Lexer {
                 let next = self.advance();
                 number.imaginary = match self.parse_real(&number, &mut started, next) {
                     Ok(num) => Some(num),
-                    Err(err) => return Some(err.into()),
+                    Err(err) => return error(number, err),
                 };
             }
             Some(val @ ('+' | '-')) => {
@@ -509,14 +537,14 @@ impl Lexer {
 
                     if !self.peek_is(0, "iI") {
                         if let Some(err) = err {
-                            return Some(err.into());
+                            return error(number, err);
                         }
-                        return Some(LexerError::NonTerminatedNumber.into());
+                        return error(number, LexerError::NonTerminatedNumber);
                     }
                     self.advance();
 
                     if let Some(err) = err {
-                        return Some(err.into());
+                        return error(number, err);
                     }
                 }
             }
@@ -529,12 +557,13 @@ impl Lexer {
         }
 
         if !self.is_delimiter(self.peek(0), env) {
-            return Some(LexerError::InvalidNumericTerminator.into());
+            return error(number, LexerError::InvalidNumericTerminator.into());
         }
 
         Some(
             Token::Number {
                 value: Box::new(number),
+                error: None,
             }
             .into(),
         )
@@ -755,7 +784,7 @@ impl Lexer {
     }
 
     /// Parse a single character literal
-    fn parse_character(&mut self, next: char, env: &mut Environment) -> Option<ErrorToken> {
+    fn parse_character(&mut self, next: char, env: &mut Environment) -> Option<Token> {
         if next != '#' || self.peek(0) != Some('\\') {
             return None;
         }
@@ -785,20 +814,21 @@ impl Lexer {
             content.push('\n')
         }
 
-        if content.len() != 1 {
-            return Some(LexerError::BadCharacterLiteral { chars: content }.into());
-        }
-
         Some(
             Token::Character {
-                value: content.chars().next().unwrap(),
+                value: content.chars().next().unwrap_or_default(),
+                error: if content.len() != 1 {
+                    Some(LexerError::BadCharacterLiteral { chars: content })
+                } else {
+                    None
+                },
             }
             .into(),
         )
     }
 
     // Parse a string literal
-    fn parse_string(&mut self, next: char) -> Option<ErrorToken> {
+    fn parse_string(&mut self, next: char) -> Option<Token> {
         if next != '"' {
             return None;
         }
@@ -829,16 +859,24 @@ impl Lexer {
             }
         }
 
-        if self.advance() != Some('"') {
-            Some(LexerError::NonTerminatedString.into())
+        let error = if self.advance() != Some('"') {
+            Some(LexerError::NonTerminatedString)
         } else if has_error {
-            Some(LexerError::StringBackslash.into())
+            Some(LexerError::StringBackslash)
         } else {
-            Some(Token::String { value: literal }.into())
-        }
+            None
+        };
+
+        Some(
+            Token::String {
+                value: literal,
+                error,
+            }
+            .into(),
+        )
     }
 
-    fn parse_symbol(&mut self, next: char) -> Option<ErrorToken> {
+    fn parse_symbol(&mut self, next: char) -> Option<Token> {
         let tok = match next {
             '(' => Token::LeftParen,
             ')' => Token::RightParen,
