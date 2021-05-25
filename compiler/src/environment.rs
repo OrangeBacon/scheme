@@ -74,7 +74,11 @@ impl Environment {
         self.errors.push(err.into());
     }
 
-    pub fn heap(&mut self) -> &mut Heap {
+    pub fn heap(&self) -> &Heap {
+        &self.heap
+    }
+
+    pub fn heap_mut(&mut self) -> &mut Heap {
         &mut self.heap
     }
 }

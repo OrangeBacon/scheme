@@ -208,7 +208,7 @@ impl BytecodeChunk {
     ) -> Result<usize, fmt::Error> {
         if let Some(&id) = self.content.get(offset + 1) {
             if let Some(constant) = self.constants.get(id as usize) {
-                writeln!(f, "{:<20} id: {} => {}", name, id, constant)?;
+                writeln!(f, "{:<20} id: {} => {:?}", name, id, constant)?;
             } else {
                 writeln!(f, "{:<20} id: {} => invalid_constant", name, id)?;
             }

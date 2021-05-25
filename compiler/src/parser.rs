@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::{
     environment::Environment,
     lexer::{Lexer, LexerError, Token, WithLocation},
-    numerics::NumericLiteralString,
+    value::{Value, ValuePrinter},
 };
 
 #[derive(Debug, Error)]
@@ -46,7 +46,7 @@ impl Program {
 #[derive(Debug)]
 pub enum Datum {
     Boolean(bool),
-    Number(Box<NumericLiteralString>),
+    Number(Value),
     Character(char),
     String(String),
     Symbol(Spur),
@@ -123,7 +123,15 @@ impl<'a> Parser<'a> {
             } => WithLocation::join(Datum::Error(err.into()), &loc),
 
             Token::Boolean { value } => WithLocation::join(Datum::Boolean(value), &loc),
-            Token::Number { value, .. } => WithLocation::join(Datum::Number(value), &loc),
+            Token::Number { value, .. } => {
+                let value = value.into_value(self.env.heap_mut());
+                let datum = match value {
+                    Ok(value) => Datum::Number(value),
+                    Err(err) => Datum::Error(err.into()),
+                };
+
+                WithLocation::join(datum, &loc)
+            }
             Token::Character { value, .. } => WithLocation::join(Datum::Character(value), &loc),
             Token::String { value, .. } => WithLocation::join(Datum::String(value), &loc),
             Token::Identifier { value, .. } => WithLocation::join(Datum::Symbol(value), &loc),
@@ -410,7 +418,7 @@ impl<'a, 'b, 'c, 'd, 'e> Display for DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
                 print_location(f, self.datum.extract())?;
             }
             Datum::Number(val) => {
-                write!(f, "number {:?}", val)?;
+                write!(f, "number: `{}`", ValuePrinter::new(*val, self.program.env))?;
                 print_location(f, self.datum.extract())?;
             }
             Datum::Character(val) => {

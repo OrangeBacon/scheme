@@ -1,4 +1,4 @@
-use std::{borrow::Cow, num::ParseFloatError};
+use std::{borrow::Cow, fmt, num::ParseFloatError};
 
 use num_bigint::{BigInt, ParseBigIntError};
 use num_traits::{Num, ToPrimitive};
@@ -37,6 +37,9 @@ pub enum NumericError {
 
     #[error("Complex numbers specified in polar form cannot be represented exactly")]
     PolarExact,
+
+    #[error("Divide by zero in rational numeric literal")]
+    DivideZero,
 }
 
 /// Data required for storing a number as a series of strings
@@ -228,6 +231,13 @@ impl NumberString {
                 let numerator = BigInt::from_str_radix(&numerator, radix_num)?;
                 let denominator = BigInt::from_str_radix(&denominator, radix_num)?;
 
+                // catch divide by 0 in literal, does not actually cause an error
+                // now as no integer division is done and f64 division will
+                // return inf, but is probably an error so should be reported
+                if denominator == BigInt::from(0) {
+                    return Err(NumericError::DivideZero);
+                }
+
                 if contains_hash || exactness == Some(false) {
                     let numerator = numerator.to_f64().ok_or(NumericError::BigIntFloatConvert)?;
                     let denominator = denominator
@@ -267,10 +277,72 @@ impl Number {
             }
         })
     }
+
+    pub fn print(&self, f: &mut fmt::Formatter, heap: &Heap) -> fmt::Result {
+        match self.0 {
+            NumberContent::Integer(val) => write!(f, "{}", val),
+            NumberContent::Single(val) => write!(f, "{}", val),
+            NumberContent::Double(val) => write!(f, "{}", val),
+
+            NumberContent::BigInteger(idx) => {
+                write!(f, "{}", heap.get_bigint(idx))
+            }
+            NumberContent::Rational(idx_1, idx_2) => {
+                write!(f, "{}/{}", heap.get_bigint(idx_1), heap.get_bigint(idx_2))
+            }
+        }
+    }
+
+    fn is_zero(&self, heap: &Heap) -> bool {
+        match self.0 {
+            NumberContent::Integer(val) => val == 0,
+            NumberContent::Single(val) => val == 0.0,
+            NumberContent::Double(val) => val == 0.0,
+            NumberContent::BigInteger(idx) => *heap.get_bigint(idx) == BigInt::from(0),
+
+            // only check the numerator as the denominator should never be 0
+            NumberContent::Rational(idx, _) => *heap.get_bigint(idx) == BigInt::from(0),
+        }
+    }
+
+    fn is_positive(&self, heap: &Heap) -> bool {
+        match self.0 {
+            NumberContent::Integer(val) => val > 0,
+            NumberContent::Single(val) => val > 0.0,
+            NumberContent::Double(val) => val > 0.0,
+            NumberContent::BigInteger(idx) => *heap.get_bigint(idx) > BigInt::from(0),
+
+            // only check the numerator as the denominator should always be positive
+            NumberContent::Rational(idx, _) => *heap.get_bigint(idx) > BigInt::from(0),
+        }
+    }
 }
 
 impl ComplexNumber {
     pub fn new(real: Number, imaginary: Number) -> Self {
         Self { real, imaginary }
+    }
+
+    pub fn print(&self, f: &mut fmt::Formatter, heap: &Heap) -> fmt::Result {
+        let has_real = !self.real.is_zero(heap);
+        let has_imaginary = !self.imaginary.is_zero(heap);
+
+        if has_real {
+            self.real.print(f, heap)?;
+        }
+
+        if has_imaginary {
+            if has_real && self.imaginary.is_positive(heap) {
+                write!(f, "+")?;
+            }
+            self.imaginary.print(f, heap)?;
+            write!(f, "i")?;
+        }
+
+        if !has_real && !has_imaginary {
+            write!(f, "0")?;
+        }
+
+        Ok(())
     }
 }

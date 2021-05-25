@@ -27,7 +27,7 @@ impl<'a> VM<'a> {
 
             match opcode {
                 OpCode::Return => {
-                    println!("{}", self.stack.pop().unwrap());
+                    println!("{:?}", self.stack.pop().unwrap());
                     break;
                 }
                 OpCode::LoadConstant => {
