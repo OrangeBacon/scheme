@@ -56,6 +56,7 @@ pub enum Datum {
     },
     Vector(Vec<WithLocation<Datum>>),
     Error(anyhow::Error),
+    LexerError(Token),
 }
 
 impl fmt::Display for Datum {
@@ -109,18 +110,12 @@ impl<'a> Parser<'a> {
         let (tok, loc) = self.advance().split();
 
         match tok {
-            Token::Number {
-                error: Some(err), ..
+            Token::Number { error: Some(_), .. }
+            | Token::Character { error: Some(_), .. }
+            | Token::String { error: Some(_), .. }
+            | Token::Identifier { error: Some(_), .. } => {
+                WithLocation::join(Datum::LexerError(tok), &loc)
             }
-            | Token::Character {
-                error: Some(err), ..
-            }
-            | Token::String {
-                error: Some(err), ..
-            }
-            | Token::Identifier {
-                error: Some(err), ..
-            } => WithLocation::join(Datum::Error(err.into()), &loc),
 
             Token::Boolean { value } => WithLocation::join(Datum::Boolean(value), &loc),
             Token::Number { value, .. } => {
@@ -148,7 +143,7 @@ impl<'a> Parser<'a> {
                 Datum::Error(ParseError::ExpectedExpression { got: tok }.into()),
                 &loc,
             ),
-            Token::Error { error } => WithLocation::join(Datum::Error(error.into()), &loc),
+            Token::Error { .. } => WithLocation::join(Datum::LexerError(tok), &loc),
         }
     }
 
@@ -462,6 +457,10 @@ impl<'a, 'b, 'c, 'd, 'e> Display for DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
             }
             Datum::Error(err) => {
                 write!(f, "error: {}", err)?;
+                print_location(f, self.datum.extract())?;
+            }
+            Datum::LexerError(err) => {
+                write!(f, "{}", err)?;
                 print_location(f, self.datum.extract())?;
             }
         }

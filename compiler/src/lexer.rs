@@ -81,46 +81,46 @@ pub enum Token {
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Token::LeftParen => write!(f, "Left paren '('")?,
-            Token::RightParen => write!(f, "Right paren ')'")?,
-            Token::VecStart => write!(f, "Vec Start '#('")?,
-            Token::Quote => write!(f, "Quote '\''")?,
-            Token::BackQuote => write!(f, "Back Quote '`'")?,
-            Token::Comma => write!(f, "Comma ','")?,
-            Token::CommaAt => write!(f, "Comma at ',@'")?,
-            Token::Dot => write!(f, "Dot '.'")?,
+            Token::LeftParen => write!(f, "left paren '('")?,
+            Token::RightParen => write!(f, "right paren ')'")?,
+            Token::VecStart => write!(f, "vec start '#('")?,
+            Token::Quote => write!(f, "quote '\''")?,
+            Token::BackQuote => write!(f, "back quote '`'")?,
+            Token::Comma => write!(f, "comma ','")?,
+            Token::CommaAt => write!(f, "comma at ',@'")?,
+            Token::Dot => write!(f, "dot '.'")?,
             Token::Identifier { value, error } => {
                 write!(f, "Identifier {:?}", value)?;
-                if error.is_some() {
-                    write!(f, " with error")?;
+                if let Some(error) = error {
+                    write!(f, " with error `{}`", error)?;
                 }
             }
             Token::Boolean { value } => {
                 if *value {
-                    write!(f, "Boolean #t")?
+                    write!(f, "boolean #t")?
                 } else {
-                    write!(f, "Boolean #f")?
+                    write!(f, "boolean #f")?
                 }
             }
             Token::Number { value, error } => {
                 write!(f, "{:?}", value)?;
-                if error.is_some() {
-                    write!(f, " with error")?;
+                if let Some(error) = error {
+                    write!(f, " with error `{}`", error)?;
                 }
             }
             Token::Character { value, error } => {
-                write!(f, "Character {:?}", value)?;
-                if error.is_some() {
-                    write!(f, " with error")?;
+                write!(f, "character {:?}", value)?;
+                if let Some(error) = error {
+                    write!(f, " with error `{}`", error)?;
                 }
             }
             Token::String { value, error } => {
-                write!(f, "String {:?}", value)?;
-                if error.is_some() {
-                    write!(f, " with error")?;
+                write!(f, "string {:?}", value)?;
+                if let Some(error) = error {
+                    write!(f, " with error `{}`", error)?;
                 }
             }
-            Token::Eof => write!(f, "EOF")?,
+            Token::Eof => write!(f, "eof")?,
             Token::Error { error } => write!(f, "{}", error)?,
         }
 
