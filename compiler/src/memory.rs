@@ -12,7 +12,7 @@ use crate::{
 /// Note: currently the heap references in values are indices into vecs,
 /// so a heap access requires indexing an array rather than dereferencing a
 /// pointer.
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct Heap {
     string: Vec<String>,
     bigint: Vec<BigInt>,

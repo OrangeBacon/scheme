@@ -101,7 +101,7 @@ pub struct ComplexNumber {
 
 impl NumericLiteralString {
     /// Convert a string based number to a value on a given heap
-    pub fn to_value(self, heap: &mut Heap) -> Result<Value, NumericError> {
+    pub fn into_value(self, heap: &mut Heap) -> Result<Value, NumericError> {
         let radix = self.radix.unwrap_or(Radix::Decimal);
         let exactness = self.exact;
 
@@ -133,19 +133,19 @@ impl NumericLiteralString {
             let real = self
                 .real
                 .map(|num| num.to_number(heap, radix, exactness))
-                .unwrap_or(Ok(heap.integer(0)))?;
+                .unwrap_or_else(|| Ok(heap.integer(0)))?;
 
             Ok(heap.number(real))
         } else {
             let real = self
                 .real
                 .map(|num| num.to_number(heap, radix, exactness))
-                .unwrap_or(Ok(heap.integer(0)))?;
+                .unwrap_or_else(|| Ok(heap.integer(0)))?;
 
             let imaginary = self
                 .imaginary
                 .map(|num| num.to_number(heap, radix, exactness))
-                .unwrap_or(Ok(heap.integer(0)))?;
+                .unwrap_or_else(|| Ok(heap.integer(0)))?;
 
             Ok(heap.complex(real, imaginary))
         }

@@ -262,22 +262,22 @@ impl Lexer {
         };
 
         if let Some(tok) = self.parse_identifier(next, env) {
-            return tok.into();
+            return tok;
         }
         if let Some(tok) = self.parse_boolean(next) {
-            return tok.into();
+            return tok;
         }
         if let Some(tok) = self.parse_number(next, env) {
-            return tok.into();
+            return tok;
         }
         if let Some(tok) = self.parse_character(next, env) {
-            return tok.into();
+            return tok;
         }
         if let Some(tok) = self.parse_string(next) {
-            return tok.into();
+            return tok;
         }
         if let Some(tok) = self.parse_symbol(next) {
-            return tok.into();
+            return tok;
         }
 
         LexerError::UnexpectedChars {

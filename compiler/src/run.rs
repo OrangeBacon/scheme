@@ -60,7 +60,7 @@ pub fn run(sources: Vec<SourceFile>, config: RuntimeConfig) -> Result<()> {
     for source in sources {
         let mut env = Environment::null(config);
         let main = env.add_file(
-            source.path.unwrap_or(String::from("unknown_file")),
+            source.path.unwrap_or_else(|| String::from("unknown_file")),
             source.content,
         );
         env.run(main);
