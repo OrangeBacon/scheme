@@ -26,12 +26,12 @@ pub enum ParseError {
         got: WithLocation<Token>,
     },
 
-    #[error("Expected expression but couldn't parse one")]
-    ExpectedExpression,
+    #[error("Expected expression but couldn't parse one, instead found {got}")]
+    ExpectedExpression { got: Token },
 }
 
 /// Top level of a scheme file
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug)]
 pub struct Program {
     file_idx: usize,
     content: Vec<WithLocation<Datum>>,
@@ -43,7 +43,7 @@ impl Program {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug)]
 pub enum Datum {
     Boolean(bool),
     Number(Box<NumericLiteralString>),
@@ -55,6 +55,7 @@ pub enum Datum {
         dot: Option<(WithLocation<()>, Box<WithLocation<Datum>>)>,
     },
     Vector(Vec<WithLocation<Datum>>),
+    Error(anyhow::Error),
 }
 
 impl fmt::Display for Datum {
@@ -89,9 +90,7 @@ impl<'a> Parser<'a> {
         let mut content = vec![];
 
         while !self.peek().matches(&Token::Eof) {
-            if let Some(element) = self.parse_datum() {
-                content.push(element);
-            }
+            content.push(self.parse_datum());
         }
 
         Program {
@@ -103,33 +102,45 @@ impl<'a> Parser<'a> {
     /// Parses a single datum.
     /// Any valid expression will parse successfully as a datum, so this is
     /// the expression parser, however not every datum is a valid expression
-    /// If unable to parse a datum, returns None and stores the error in self.
-    fn parse_datum(&mut self) -> Option<WithLocation<Datum>> {
+    /// If unable to parse a datum, returns an error datum showing the error
+    /// kind and location.  Might emit an error to the environment in some cases
+    /// when a datum can still be constructed, but is wrong in some way
+    fn parse_datum(&mut self) -> WithLocation<Datum> {
         let (tok, loc) = self.advance().split();
 
         match tok {
-            Token::Boolean { value } => Some(WithLocation::join(Datum::Boolean(value), &loc)),
-            Token::Number { value, .. } => Some(WithLocation::join(Datum::Number(value), &loc)),
-            Token::Character { value, .. } => {
-                Some(WithLocation::join(Datum::Character(value), &loc))
+            Token::Number {
+                error: Some(err), ..
             }
-            Token::String { value, .. } => Some(WithLocation::join(Datum::String(value), &loc)),
-            Token::Identifier { value, .. } => Some(WithLocation::join(Datum::Symbol(value), &loc)),
+            | Token::Character {
+                error: Some(err), ..
+            }
+            | Token::String {
+                error: Some(err), ..
+            }
+            | Token::Identifier {
+                error: Some(err), ..
+            } => WithLocation::join(Datum::Error(err.into()), &loc),
 
-            Token::VecStart => Some(self.parse_vector(loc)),
+            Token::Boolean { value } => WithLocation::join(Datum::Boolean(value), &loc),
+            Token::Number { value, .. } => WithLocation::join(Datum::Number(value), &loc),
+            Token::Character { value, .. } => WithLocation::join(Datum::Character(value), &loc),
+            Token::String { value, .. } => WithLocation::join(Datum::String(value), &loc),
+            Token::Identifier { value, .. } => WithLocation::join(Datum::Symbol(value), &loc),
+
+            Token::VecStart => self.parse_vector(loc),
 
             tok @ (Token::Quote | Token::BackQuote | Token::Comma | Token::CommaAt) => {
                 self.parse_abbreviation(loc, tok)
             }
 
-            Token::LeftParen => Some(self.parse_list(loc)),
+            Token::LeftParen => self.parse_list(loc),
 
-            _ => {
-                self.emit_error(ParseError::UnexpectedToken {
-                    token: WithLocation::join(tok, &loc),
-                });
-                None
-            }
+            Token::RightParen | Token::Dot | Token::Eof => WithLocation::join(
+                Datum::Error(ParseError::ExpectedExpression { got: tok }.into()),
+                &loc,
+            ),
+            Token::Error { error } => WithLocation::join(Datum::Error(error.into()), &loc),
         }
     }
 
@@ -141,9 +152,7 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            if let Some(val) = self.parse_datum() {
-                elements.push(val);
-            }
+            elements.push(self.parse_datum());
         }
 
         let tok = self.advance();
@@ -166,7 +175,7 @@ impl<'a> Parser<'a> {
         &mut self,
         start_loc: WithLocation<()>,
         start: Token,
-    ) -> Option<WithLocation<Datum>> {
+    ) -> WithLocation<Datum> {
         let prefix = match start {
             Token::Quote => self.env.symbols_mut().get_or_intern("quote"),
             Token::BackQuote => self.env.symbols_mut().get_or_intern("quasiquote"),
@@ -177,23 +186,19 @@ impl<'a> Parser<'a> {
 
         let content = self.parse_datum();
 
-        if let Some(content) = content {
-            let (content, end) = content.split();
-            let loc = start_loc.extend(&end);
+        let (content, end) = content.split();
+        let loc = start_loc.extend(&end);
 
-            Some(WithLocation::join(
-                Datum::List {
-                    values: vec![
-                        WithLocation::join(Datum::Symbol(prefix), &start_loc),
-                        WithLocation::join(content, &loc),
-                    ],
-                    dot: None,
-                },
-                &loc,
-            ))
-        } else {
-            None
-        }
+        WithLocation::join(
+            Datum::List {
+                values: vec![
+                    WithLocation::join(Datum::Symbol(prefix), &start_loc),
+                    WithLocation::join(content, &loc),
+                ],
+                dot: None,
+            },
+            &loc,
+        )
     }
 
     /// parses lists, syntax: (<datum>*) | (<datum>+ . <datum>)
@@ -211,9 +216,7 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            if let Some(val) = self.parse_datum() {
-                values.push(val);
-            }
+            values.push(self.parse_datum());
 
             started = true;
         }
@@ -224,13 +227,8 @@ impl<'a> Parser<'a> {
 
         if tok.matches(&Token::Dot) {
             // try to get the value after the dot
-            dot = if let Some(after) = self.parse_datum() {
-                let (_, loc) = tok.split();
-                Some((loc, Box::new(after)))
-            } else {
-                self.emit_error(ParseError::ExpectedExpression);
-                None
-            };
+            let (_, loc) = tok.split();
+            dot = Some((loc, Box::new(self.parse_datum())));
 
             tok = self.advance();
         } else {
@@ -453,6 +451,10 @@ impl<'a, 'b, 'c, 'd, 'e> Display for DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
                 self.depth.borrow_mut().push(DepthInfo::Continue);
                 self.print_many(f, values, true)?;
                 self.depth.borrow_mut().pop();
+            }
+            Datum::Error(err) => {
+                write!(f, "error: {}", err)?;
+                print_location(f, self.datum.extract())?;
             }
         }
         Ok(())

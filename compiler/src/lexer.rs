@@ -492,6 +492,15 @@ impl Lexer {
             Ok(num) => num,
             Err(err) => {
                 if started {
+                    // if a only a single character was consumed in the current number
+                    // and that character was a dot and (given there was a parse real
+                    // error) there are no numeric tokens following the dot that could
+                    // make it a number starting with a dot, the token is instead the
+                    // '.' symbol, not a number.
+                    if self.current - self.start == 1 && self.source[self.start] == '.' {
+                        return Some(Token::Dot);
+                    }
+
                     return error(number, err);
                 } else {
                     return None;
@@ -590,9 +599,9 @@ impl Lexer {
         if next == '.' {
             // decimal number beginning with a dot
             num.push('.');
+            *started = true;
 
             self.unsigned_integer(number.radix, &mut num)?;
-            *started = true;
 
             while self.peek_is(0, "#") {
                 num.push('#');
@@ -760,6 +769,8 @@ impl Lexer {
             }
             num.push(ch);
             self.advance();
+        } else {
+            return Err(LexerError::NonTerminatedNumber);
         }
 
         while let Some(ch) = self.peek(0) {
