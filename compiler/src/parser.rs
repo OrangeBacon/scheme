@@ -95,6 +95,10 @@ impl<'a> Parser<'a> {
             content.push(self.parse_datum());
         }
 
+        self.env
+            .file_mut(self.lexer.file_idx())
+            .set_line_numbering(self.lexer.line_numbering());
+
         Program {
             content,
             file_idx: self.lexer.file_idx(),
@@ -284,10 +288,6 @@ impl<'a> Parser<'a> {
     fn emit_error(&mut self, err: ParseError) {
         self.env.emit_error(err);
     }
-
-    pub fn line_numbering(&self) -> &[Range<usize>] {
-        &self.lexer.line_numbering()
-    }
 }
 
 /// Trait for things that can be pattern matched against tokens
@@ -406,6 +406,12 @@ impl<'a, 'b, 'c, 'd, 'e> DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
 
 impl<'a, 'b, 'c, 'd, 'e> Display for DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let line_numbering = self
+            .program
+            .env
+            .file(self.program.program.file_idx)
+            .line_numbering();
+
         print_depth(f, &self.depth)?;
         match self.datum.content() {
             Datum::Boolean(val) => {
@@ -415,19 +421,19 @@ impl<'a, 'b, 'c, 'd, 'e> Display for DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
                 } else {
                     write!(f, "#f")?;
                 }
-                print_location(f, self.datum.extract())?;
+                print_location(f, self.datum.extract(), line_numbering)?;
             }
             Datum::Number(val) => {
                 write!(f, "number: `{}`", ValuePrinter::new(*val, self.program.env))?;
-                print_location(f, self.datum.extract())?;
+                print_location(f, self.datum.extract(), line_numbering)?;
             }
             Datum::Character(val) => {
                 write!(f, "character {:?}", *val)?;
-                print_location(f, self.datum.extract())?;
+                print_location(f, self.datum.extract(), line_numbering)?;
             }
             Datum::String(val) => {
                 write!(f, "string {:?}", val)?;
-                print_location(f, self.datum.extract())?;
+                print_location(f, self.datum.extract(), line_numbering)?;
             }
             Datum::Symbol(val) => {
                 write!(
@@ -436,14 +442,14 @@ impl<'a, 'b, 'c, 'd, 'e> Display for DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
                     val.into_usize(),
                     self.program.env.symbols().resolve(val)
                 )?;
-                print_location(f, self.datum.extract())?;
+                print_location(f, self.datum.extract(), line_numbering)?;
             }
             Datum::List { values, dot } => {
                 write!(f, "list")?;
                 if dot.is_some() {
                     write!(f, " with dot expression")?;
                 }
-                print_location(f, self.datum.extract())?;
+                print_location(f, self.datum.extract(), line_numbering)?;
 
                 self.depth.borrow_mut().push(DepthInfo::Continue);
                 self.print_many(f, values, dot.is_none())?;
@@ -454,7 +460,7 @@ impl<'a, 'b, 'c, 'd, 'e> Display for DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
             }
             Datum::Vector(values) => {
                 write!(f, "vector")?;
-                print_location(f, self.datum.extract())?;
+                print_location(f, self.datum.extract(), line_numbering)?;
 
                 self.depth.borrow_mut().push(DepthInfo::Continue);
                 self.print_many(f, values, true)?;
@@ -462,11 +468,11 @@ impl<'a, 'b, 'c, 'd, 'e> Display for DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
             }
             Datum::Error(err) => {
                 write!(f, "error: {}", err)?;
-                print_location(f, self.datum.extract())?;
+                print_location(f, self.datum.extract(), line_numbering)?;
             }
             Datum::LexerError(err) => {
                 write!(f, "{}", err)?;
-                print_location(f, self.datum.extract())?;
+                print_location(f, self.datum.extract(), line_numbering)?;
             }
         }
         Ok(())
@@ -498,7 +504,48 @@ fn print_depth(f: &mut fmt::Formatter, depth_data: &RefCell<Vec<DepthInfo>>) -> 
     Ok(())
 }
 
-fn print_location(f: &mut fmt::Formatter, loc: WithLocation<()>) -> fmt::Result {
+fn print_location(
+    f: &mut fmt::Formatter,
+    loc: WithLocation<()>,
+    line_numbering: &[Range<usize>],
+) -> fmt::Result {
     let range = loc.source_range();
-    writeln!(f, " {}-{}", range.start, range.end)
+
+    let start = get_line_col(range.start, line_numbering);
+
+    // -1 because end is exclusive
+    let end = get_line_col(range.end - 1, line_numbering);
+
+    write!(f, " {}:{}", start.0, start.1)?;
+
+    if start.0 == end.0 {
+        writeln!(f, "-{}", end.1)
+    } else {
+        writeln!(f, "-{}:{}", end.0, end.1)
+    }
+}
+
+fn get_line_col(char_loc: usize, line_numbering: &[Range<usize>]) -> (usize, usize) {
+    use std::cmp::Ordering;
+
+    let line = line_numbering
+        .binary_search_by(|range| {
+            if range.contains(&char_loc) {
+                Ordering::Equal
+            } else if char_loc < range.start {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        })
+        .unwrap_or(0);
+
+    let col = char_loc + 1
+        - line_numbering
+            .get(line)
+            .map(|range| range.start)
+            .unwrap_or(0);
+
+    // make line and column 1 indexed, not 0 indexed
+    (line + 1, col + 1)
 }

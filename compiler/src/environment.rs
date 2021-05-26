@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Range};
 
 use lasso::{Capacity, Rodeo, Spur};
 
@@ -8,6 +8,7 @@ use crate::{ir::IrBuilder, memory::Heap, parser::Parser, run::RuntimeConfig, val
 pub struct File {
     name: String,
     content: String,
+    line_numbering: Vec<Range<usize>>,
 }
 
 impl File {
@@ -17,6 +18,14 @@ impl File {
 
     pub fn content(&self) -> &str {
         &self.content
+    }
+
+    pub fn line_numbering(&self) -> &[Range<usize>] {
+        &self.line_numbering
+    }
+
+    pub(crate) fn set_line_numbering(&mut self, numbers: &[Range<usize>]) {
+        self.line_numbering = numbers.to_vec();
     }
 }
 
@@ -54,7 +63,11 @@ impl Environment {
     }
 
     pub fn add_file(&mut self, name: String, content: String) -> usize {
-        self.files.push(File { name, content });
+        self.files.push(File {
+            name,
+            content,
+            line_numbering: vec![],
+        });
         self.files.len() - 1
     }
 
@@ -72,6 +85,10 @@ impl Environment {
 
     pub fn file(&self, idx: usize) -> &File {
         &self.files[idx]
+    }
+
+    pub fn file_mut(&mut self, idx: usize) -> &mut File {
+        &mut self.files[idx]
     }
 
     pub fn symbols(&self) -> &Rodeo {
