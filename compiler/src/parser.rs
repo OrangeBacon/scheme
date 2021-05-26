@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     fmt::{self, Display},
+    ops::Range,
 };
 
 use lasso::{Key, Spur};
@@ -283,6 +284,10 @@ impl<'a> Parser<'a> {
     fn emit_error(&mut self, err: ParseError) {
         self.env.emit_error(err);
     }
+
+    pub fn line_numbering(&self) -> &[Range<usize>] {
+        &self.lexer.line_numbering()
+    }
 }
 
 /// Trait for things that can be pattern matched against tokens
@@ -347,7 +352,7 @@ impl<'a, 'b> Display for ProgramPrinter<'a, 'b> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let depth = RefCell::new(vec![]);
 
-        writeln!(f, "file `{}`:", self.env.files()[self.program.file_idx].0)?;
+        writeln!(f, "file `{}`:", self.env.file(self.program.file_idx).name())?;
         for datum in &self.program.content {
             let printer = DatumPrintWrapper {
                 program: self,

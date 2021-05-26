@@ -4,10 +4,26 @@ use lasso::{Capacity, Rodeo, Spur};
 
 use crate::{ir::IrBuilder, memory::Heap, parser::Parser, run::RuntimeConfig, value::Value};
 
+#[derive(Debug, Clone)]
+pub struct File {
+    name: String,
+    content: String,
+}
+
+impl File {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+}
+
 #[derive(Debug)]
 pub struct Environment {
     config: RuntimeConfig,
-    files: Vec<(String, String)>,
+    files: Vec<File>,
 
     symbols: Rodeo,
     errors: Vec<anyhow::Error>,
@@ -38,7 +54,7 @@ impl Environment {
     }
 
     pub fn add_file(&mut self, name: String, content: String) -> usize {
-        self.files.push((name, content));
+        self.files.push(File { name, content });
         self.files.len() - 1
     }
 
@@ -54,8 +70,8 @@ impl Environment {
         &self.config
     }
 
-    pub fn files(&self) -> &[(String, String)] {
-        &self.files
+    pub fn file(&self, idx: usize) -> &File {
+        &self.files[idx]
     }
 
     pub fn symbols(&self) -> &Rodeo {
