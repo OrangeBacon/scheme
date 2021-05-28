@@ -1,7 +1,13 @@
 use lasso::Spur;
 use thiserror::Error;
 
-use crate::{environment::Environment, lexer::WithLocation, numerics::NumericError, parser::{Datum, ProgramPrinter, Program}, value::Value};
+use crate::{
+    environment::Environment,
+    lexer::WithLocation,
+    numerics::NumericError,
+    parser::{Datum, Program, ProgramPrinter},
+    value::Value,
+};
 
 #[derive(Debug, Error)]
 pub enum IrParseError {
