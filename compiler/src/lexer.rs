@@ -1,6 +1,7 @@
 mod identifiers;
 mod location;
 mod numbers;
+mod test;
 
 pub use self::location::*;
 
