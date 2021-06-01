@@ -149,6 +149,9 @@ pub struct Lexer {
     /// Data used to convert between character offsets and line/column numbers,
     /// should be much smaller than storing the information inside each token
     line_numbering: Vec<Range<usize>>,
+
+    /// Was the last consumed character an end of line character?
+    is_eol: bool,
 }
 
 impl Lexer {
@@ -160,6 +163,7 @@ impl Lexer {
             current: 0,
             start: 0,
             line_numbering: vec![],
+            is_eol: false,
         }
     }
 
@@ -168,7 +172,7 @@ impl Lexer {
         // need to skip whitespace before recording line and column positions
         // otherwise the whitespace will be included in the token's source
         // location
-        self.skip_whitespace(env);
+        self.skip_whitespace();
 
         let tok = self.get_token(env);
 
@@ -184,10 +188,10 @@ impl Lexer {
 
     /// Get the next token from the source
     pub fn get_token(&mut self, env: &mut Environment) -> Token {
-        self.skip_whitespace(env);
+        self.skip_whitespace();
         self.start = self.current;
 
-        let next = if let Some(next) = self.advance(env) {
+        let next = if let Some(next) = self.advance() {
             next
         } else {
             return Token::Eof.into();
@@ -196,19 +200,19 @@ impl Lexer {
         if let Some(tok) = self.parse_identifier(next, env) {
             return tok;
         }
-        if let Some(tok) = self.parse_boolean(next, env) {
+        if let Some(tok) = self.parse_boolean(next) {
             return tok;
         }
-        if let Some(tok) = self.parse_number(next, env) {
+        if let Some(tok) = self.parse_number(next) {
             return tok;
         }
-        if let Some(tok) = self.parse_character(next, env) {
+        if let Some(tok) = self.parse_character(next) {
             return tok;
         }
-        if let Some(tok) = self.parse_string(next, env) {
+        if let Some(tok) = self.parse_string(next) {
             return tok;
         }
-        if let Some(tok) = self.parse_symbol(next, env) {
+        if let Some(tok) = self.parse_symbol(next) {
             return tok;
         }
 
@@ -220,9 +224,9 @@ impl Lexer {
     }
 
     /// Parse a boolean true or false
-    fn parse_boolean(&mut self, next: char, env: &mut Environment) -> Option<Token> {
+    fn parse_boolean(&mut self, next: char) -> Option<Token> {
         if next == '#' && self.peek_is(0, "tfTF") {
-            self.advance(env);
+            self.advance();
             return Some(
                 Token::Boolean {
                     value: self.peek_is(0, "tT"),
@@ -235,23 +239,20 @@ impl Lexer {
     }
 
     /// Parse a single character literal
-    fn parse_character(&mut self, next: char, env: &mut Environment) -> Option<Token> {
+    fn parse_character(&mut self, next: char) -> Option<Token> {
         if next != '#' || self.peek(0) != Some('\\') {
             return None;
         }
 
-        self.advance(env);
+        self.advance();
 
         let mut content = String::new();
         while let Some(char) = self.peek(0) {
-            if char.is_ascii_whitespace()
-                || ("\"();".contains(char) && !content.is_empty())
-                || (env.config().extended_whitespace && char.is_whitespace())
-            {
+            if char.is_whitespace() || ("\"();".contains(char) && !content.is_empty()) {
                 break;
             } else {
                 content.push(char);
-                self.advance(env);
+                self.advance();
             }
         }
 
@@ -279,7 +280,7 @@ impl Lexer {
     }
 
     // Parse a string literal
-    fn parse_string(&mut self, next: char, env: &mut Environment) -> Option<Token> {
+    fn parse_string(&mut self, next: char) -> Option<Token> {
         if next != '"' {
             return None;
         }
@@ -293,24 +294,24 @@ impl Lexer {
             // interpret escape sequences
             if char == '\\' && self.peek_is(1, "\"") {
                 literal.push('"');
-                self.advance(env);
-                self.advance(env);
+                self.advance();
+                self.advance();
             } else if char == '\\' && self.peek_is(1, "\\") {
                 literal.push('\\');
-                self.advance(env);
-                self.advance(env);
+                self.advance();
+                self.advance();
             } else if char == '\\' {
                 has_error = true;
-                self.advance(env);
+                self.advance();
             } else if char == '"' {
                 break;
             } else {
                 literal.push(char);
-                self.advance(env);
+                self.advance();
             }
         }
 
-        let error = if self.advance(env) != Some('"') {
+        let error = if self.advance() != Some('"') {
             Some(LexerError::NonTerminatedString)
         } else if has_error {
             Some(LexerError::StringBackslash)
@@ -327,7 +328,7 @@ impl Lexer {
         )
     }
 
-    fn parse_symbol(&mut self, next: char, env: &mut Environment) -> Option<Token> {
+    fn parse_symbol(&mut self, next: char) -> Option<Token> {
         let tok = match next {
             '(' => Token::LeftParen,
             ')' => Token::RightParen,
@@ -336,11 +337,11 @@ impl Lexer {
             '.' => Token::Dot,
 
             '#' if self.peek(0) == Some('(') => {
-                self.advance(env);
+                self.advance();
                 Token::VecStart
             }
             ',' if self.peek(0) == Some('@') => {
-                self.advance(env);
+                self.advance();
                 Token::CommaAt
             }
             ',' => Token::Comma,
@@ -352,22 +353,21 @@ impl Lexer {
     }
 
     // skips whitespace and comments that are not part of a token
-    fn skip_whitespace(&mut self, env: &mut Environment) {
+    fn skip_whitespace(&mut self) {
         loop {
             match self.peek(0) {
-                // default whitespace
-                Some(' ') | Some('\n') => {
-                    self.advance(env);
-                }
-                // all whitespace
-                Some(c) if env.config().extended_whitespace && c.is_whitespace() => {
-                    self.advance(env);
+                // whitespace
+                Some(c) if c.is_whitespace() => {
+                    self.advance();
                 }
                 // comments
                 Some(';') => {
-                    self.advance(env);
-                    while self.peek(0) != Some('\n') {
-                        self.advance(env);
+                    self.advance();
+                    loop {
+                        self.advance();
+                        if self.is_eol {
+                            break;
+                        }
                     }
                 }
                 _ => return,
@@ -376,21 +376,14 @@ impl Lexer {
     }
 
     /// is a character a valid letter for the start of an identifier
-    fn is_initial(&self, c: char, env: &mut Environment) -> bool {
-        let res = if env.config().unicode_identifiers {
-            c.is_alphabetic()
-        } else {
-            c.is_ascii_alphabetic()
-        };
-
-        res || "!$%&*/:<=>?^_~".contains(c)
+    fn is_initial(&self, c: char) -> bool {
+        c.is_alphabetic() || "!$%&*/:<=>?^_~".contains(c)
     }
 
     /// is a character a valid delimiter between tokens
-    fn is_delimiter(&self, val: Option<char>, env: &mut Environment) -> bool {
+    fn is_delimiter(&self, val: Option<char>) -> bool {
         if let Some(val) = val {
-            matches!(val, '(' | ')' | '"' | ';' | ' ' | '\n')
-                || (env.config().extended_whitespace && val.is_whitespace())
+            matches!(val, '(' | ')' | '"' | ';' | ' ' | '\n') || val.is_whitespace()
         } else {
             true
         }
@@ -406,27 +399,18 @@ impl Lexer {
     }
 
     /// Consume and return one character from the input
-    fn advance(&mut self, env: &mut Environment) -> Option<char> {
+    fn advance(&mut self) -> Option<char> {
+        self.is_eol = false;
+
         let res = self.peek(0);
 
-        let is_unicode_eol = env.config().extended_whitespace
-            && res
-                .map(|c| "\u{B}\u{C}\r\u{85}\u{2028}\u{2029}".contains(c))
-                .unwrap_or(false);
+        let is_eol = res
+            .map(|c| "\u{B}\u{C}\r\n\u{85}\u{2028}\u{2029}".contains(c))
+            .unwrap_or(false);
 
         // check for crlf being a single line terminator, not one so the line numbering
         // is extended to include the \n, not register it as a new line
-        if env.config().extended_whitespace
-            && res == Some('\n')
-            && self
-                .current
-                .checked_sub(1)
-                .and_then(|n| self.source.get(n))
-                .copied()
-                == Some('\r')
-        {
-            self.line_numbering.last_mut().map(|f| f.end += 1);
-        } else if is_unicode_eol || res == Some('\n') {
+        if is_eol && !(res == Some('\r') && self.peek(1) == Some('\n')) {
             let start = if let Some(prev) = self.line_numbering.last() {
                 prev.end
             } else {
@@ -437,6 +421,7 @@ impl Lexer {
             let end = self.current + 1;
 
             self.line_numbering.push(start..end);
+            self.is_eol = true;
         }
 
         // don't change positions if at EOF

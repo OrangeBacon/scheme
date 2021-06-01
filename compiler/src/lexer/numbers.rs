@@ -1,5 +1,4 @@
 use crate::{
-    environment::Environment,
     lexer::LexerError,
     numerics::{ExponentKind, NumberString, NumericLiteralString, Radix},
 };
@@ -8,7 +7,7 @@ use super::{Lexer, Token};
 
 impl Lexer {
     /// Parse any kind of generic numeric literal
-    pub fn parse_number(&mut self, mut next: char, env: &mut Environment) -> Option<Token> {
+    pub fn parse_number(&mut self, mut next: char) -> Option<Token> {
         let mut number = NumericLiteralString {
             radix: None,
             exact: None,
@@ -54,13 +53,13 @@ impl Lexer {
             number.exact = match_exactness(peek);
 
             if number.radix != None || number.exact != None {
-                self.advance(env);
-                next = match self.advance(env) {
+                self.advance();
+                next = match self.advance() {
                     Some(c) => c,
                     None => return error(number, LexerError::NonTerminatedNumber),
                 };
                 if next == '#' {
-                    peek = match self.advance(env) {
+                    peek = match self.advance() {
                         Some(c) => c,
                         None => return error(number, LexerError::NonTerminatedNumber),
                     };
@@ -75,7 +74,7 @@ impl Lexer {
                         return error(number, LexerError::InvalidNumericPrefix);
                     }
 
-                    next = match self.advance(env) {
+                    next = match self.advance() {
                         Some(c) => c,
                         None => return error(number, LexerError::NonTerminatedNumber),
                     }
@@ -86,7 +85,7 @@ impl Lexer {
         // parse the complex number after the prefix
         if (next == '+' || next == '-') && self.peek_is(0, "iI") {
             // either +i or -i
-            self.advance(env);
+            self.advance();
 
             if next == '+' {
                 number.imaginary = Some(NumberString::Integer("1".into()));
@@ -94,7 +93,7 @@ impl Lexer {
                 number.imaginary = Some(NumberString::Integer("-1".into()));
             }
 
-            if !self.is_delimiter(self.peek(0), env) {
+            if !self.is_delimiter(self.peek(0)) {
                 return error(number, LexerError::InvalidNumericTerminator);
             }
 
@@ -107,7 +106,7 @@ impl Lexer {
             );
         }
 
-        let first = match self.parse_real(&number, &mut started, Some(next), env) {
+        let first = match self.parse_real(&number, &mut started, Some(next)) {
             Ok(num) => num,
             Err(err) => {
                 if started {
@@ -131,10 +130,10 @@ impl Lexer {
             Some('@') => {
                 // polar form complex number
                 number.polar_form = true;
-                self.advance(env);
+                self.advance();
                 number.real = Some(first);
-                let next = self.advance(env);
-                number.imaginary = match self.parse_real(&number, &mut started, next, env) {
+                let next = self.advance();
+                number.imaginary = match self.parse_real(&number, &mut started, next) {
                     Ok(num) => Some(num),
                     Err(err) => return error(number, err),
                 };
@@ -142,8 +141,8 @@ impl Lexer {
             Some(val @ ('+' | '-')) => {
                 if self.peek_is(1, "iI") {
                     // <real R> [+-] i
-                    self.advance(env);
-                    self.advance(env);
+                    self.advance();
+                    self.advance();
                     number.real = Some(first);
                     if val == '+' {
                         number.imaginary = Some(NumberString::Integer("1".into()));
@@ -153,9 +152,9 @@ impl Lexer {
                 } else {
                     // <real R> [+-] <ureal R> i
                     number.real = Some(first);
-                    let next = self.advance(env);
+                    let next = self.advance();
 
-                    let err = match self.parse_real(&number, &mut started, next, env) {
+                    let err = match self.parse_real(&number, &mut started, next) {
                         Ok(real) => {
                             number.imaginary = Some(real);
                             None
@@ -169,7 +168,7 @@ impl Lexer {
                         }
                         return error(number, LexerError::NonTerminatedNumber);
                     }
-                    self.advance(env);
+                    self.advance();
 
                     if let Some(err) = err {
                         return error(number, err);
@@ -178,13 +177,13 @@ impl Lexer {
             }
             Some('i') => {
                 // [+-] <ureal R> i
-                self.advance(env);
+                self.advance();
                 number.imaginary = Some(first);
             }
             _ => number.real = Some(first),
         }
 
-        if !self.is_delimiter(self.peek(0), env) {
+        if !self.is_delimiter(self.peek(0)) {
             return error(number, LexerError::InvalidNumericTerminator.into());
         }
 
@@ -202,7 +201,6 @@ impl Lexer {
         number: &NumericLiteralString,
         started: &mut bool,
         next: Option<char>,
-        env: &mut Environment,
     ) -> Result<NumberString, LexerError> {
         let mut num = String::new();
         let mut next = match next {
@@ -213,7 +211,7 @@ impl Lexer {
         if matches!(next, '+' | '-') {
             *started = true;
             num.push(next);
-            next = self.advance(env).ok_or(LexerError::NonTerminatedNumber)?;
+            next = self.advance().ok_or(LexerError::NonTerminatedNumber)?;
         }
 
         if next == '.' {
@@ -221,14 +219,14 @@ impl Lexer {
             num.push('.');
             *started = true;
 
-            self.unsigned_integer(number.radix, &mut num, env)?;
+            self.unsigned_integer(number.radix, &mut num)?;
 
             while self.peek_is(0, "#") {
                 num.push('#');
-                self.advance(env);
+                self.advance();
             }
 
-            let exponent = self.decimal_suffix(env)?;
+            let exponent = self.decimal_suffix()?;
 
             if number.radix != Some(Radix::Decimal) && number.radix != None {
                 return Err(LexerError::DecimalRadix);
@@ -248,18 +246,18 @@ impl Lexer {
                 break;
             }
             num.push(ch);
-            self.advance(env);
+            self.advance();
         }
 
         match self.peek(0) {
             Some('/') => {
                 // fractional number
-                self.advance(env);
+                self.advance();
                 let mut part2 = String::new();
-                self.unsigned_integer(number.radix, &mut part2, env)?;
+                self.unsigned_integer(number.radix, &mut part2)?;
                 while self.peek_is(0, "#") {
                     part2.push('#');
-                    self.advance(env);
+                    self.advance();
                 }
                 Ok(NumberString::Fraction(num.into(), part2.into()))
             }
@@ -267,7 +265,7 @@ impl Lexer {
                 // number with exponential suffix
                 // does not consume the peeked character as that is
                 // performed inside the suffix parsing
-                let exponent = self.decimal_suffix(env)?;
+                let exponent = self.decimal_suffix()?;
 
                 if number.radix != Some(Radix::Decimal) && number.radix != None {
                     return Err(LexerError::DecimalRadix);
@@ -277,7 +275,7 @@ impl Lexer {
             Some('#') => {
                 while self.peek_is(0, "#") {
                     num.push('#');
-                    self.advance(env);
+                    self.advance();
                 }
 
                 if !self.peek_is(0, ".") {
@@ -286,15 +284,15 @@ impl Lexer {
                 }
 
                 // <digit 10>+ #+ . #* <suffix>
-                self.advance(env);
+                self.advance();
                 num.push('.');
 
                 while self.peek_is(0, "#") {
                     num.push('#');
-                    self.advance(env);
+                    self.advance();
                 }
 
-                let exponent = self.decimal_suffix(env)?;
+                let exponent = self.decimal_suffix()?;
 
                 if number.radix != Some(Radix::Decimal) && number.radix != None {
                     return Err(LexerError::DecimalRadix);
@@ -304,7 +302,7 @@ impl Lexer {
             }
             Some('.') => {
                 // <digit 10>+ . <digit 10>* #* <suffix>
-                self.advance(env);
+                self.advance();
                 num.push('.');
 
                 while let Some(ch) = self.peek(0) {
@@ -312,15 +310,15 @@ impl Lexer {
                         break;
                     }
                     num.push(ch);
-                    self.advance(env);
+                    self.advance();
                 }
 
                 while self.peek_is(0, "#") {
                     num.push('#');
-                    self.advance(env);
+                    self.advance();
                 }
 
-                let exponent = self.decimal_suffix(env)?;
+                let exponent = self.decimal_suffix()?;
 
                 if number.radix != Some(Radix::Decimal) && number.radix != None {
                     return Err(LexerError::DecimalRadix);
@@ -333,10 +331,7 @@ impl Lexer {
     }
 
     /// Parse a single decimal prefix
-    fn decimal_suffix(
-        &mut self,
-        env: &mut Environment,
-    ) -> Result<Option<ExponentKind>, LexerError> {
+    fn decimal_suffix(&mut self) -> Result<Option<ExponentKind>, LexerError> {
         let kind = match self.peek(0) {
             Some(peek) => {
                 if !"esfdl".contains(peek) {
@@ -348,13 +343,13 @@ impl Lexer {
         };
 
         let mut num = String::new();
-        self.advance(env);
+        self.advance();
 
-        let mut next = self.advance(env).ok_or(LexerError::NonTerminatedNumber)?;
+        let mut next = self.advance().ok_or(LexerError::NonTerminatedNumber)?;
 
         if matches!(next, '+' | '-') {
             num.push(next);
-            next = self.advance(env).ok_or(LexerError::NonTerminatedNumber)?;
+            next = self.advance().ok_or(LexerError::NonTerminatedNumber)?;
         }
 
         if !"0123456789".contains(next) {
@@ -365,7 +360,7 @@ impl Lexer {
         while let Some(val) = self.peek(0) {
             if "0123456789".contains(val) {
                 num.push(val);
-                self.advance(env);
+                self.advance();
             } else {
                 break;
             }
@@ -385,14 +380,13 @@ impl Lexer {
         &mut self,
         radix: Option<Radix>,
         num: &mut String,
-        env: &mut Environment,
     ) -> Result<(), LexerError> {
         if let Some(ch) = self.peek(0) {
             if !Self::digits(radix).contains(ch) {
                 return Err(LexerError::NonTerminatedNumber);
             }
             num.push(ch);
-            self.advance(env);
+            self.advance();
         } else {
             return Err(LexerError::NonTerminatedNumber);
         }
@@ -402,7 +396,7 @@ impl Lexer {
                 break;
             }
             num.push(ch);
-            self.advance(env);
+            self.advance();
         }
 
         Ok(())

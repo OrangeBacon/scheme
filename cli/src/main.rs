@@ -52,8 +52,6 @@ fn run() -> Result<()> {
         (about: crate_description!())
         (@arg input: +multiple "Input files to parse.  If not present uses stdin.")
         (@arg eval: -e --eval "Interpret the input as source code instead of file names")
-        (@arg strict: -s --strict r#"Disable strict mode"#)
-        (@arg feature: -f --feature +takes_value +multiple "Enable or disable a feature")
         (@subcommand info =>
             (about: "Print internal documentation messages")
             (@arg value: +takes_value +multiple "The documentation message to get"))
@@ -120,17 +118,7 @@ fn run() -> Result<()> {
     }
 
     // get the base configuration
-    let mut config = if matches.is_present("strict") {
-        RuntimeConfig::new_extended()
-    } else {
-        RuntimeConfig::new_strict()
-    };
-
-    if let Some(features) = matches.values_of("feature") {
-        for value in features {
-            config.set_feature(value)?;
-        }
-    }
+    let config = RuntimeConfig::new();
 
     run::run(sources, config)?;
 
