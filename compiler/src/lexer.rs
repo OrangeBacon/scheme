@@ -191,41 +191,40 @@ impl Lexer {
         self.skip_whitespace();
         self.start = self.current;
 
-        let next = if let Some(next) = self.advance() {
-            next
-        } else {
+        if self.peek(0) == None {
             return Token::Eof.into();
-        };
+        }
 
-        if let Some(tok) = self.parse_identifier(next, env) {
+        if let Some(tok) = self.parse_identifier(env) {
             return tok;
         }
-        if let Some(tok) = self.parse_boolean(next) {
+        if let Some(tok) = self.parse_boolean() {
             return tok;
         }
-        if let Some(tok) = self.parse_number(next) {
+        if let Some(tok) = self.parse_number() {
             return tok;
         }
-        if let Some(tok) = self.parse_character(next) {
+        if let Some(tok) = self.parse_character() {
             return tok;
         }
-        if let Some(tok) = self.parse_string(next) {
+        if let Some(tok) = self.parse_string() {
             return tok;
         }
-        if let Some(tok) = self.parse_symbol(next) {
+        if let Some(tok) = self.parse_symbol() {
             return tok;
         }
 
         Token::Error {
             error: LexerError::UnexpectedChars {
-                chars: next.to_string(),
+                chars: self.advance().map(|c| c.to_string()).unwrap_or_default(),
             },
         }
     }
 
     /// Parse a boolean true or false
-    fn parse_boolean(&mut self, next: char) -> Option<Token> {
-        if next == '#' && self.peek_is(0, "tfTF") {
+    fn parse_boolean(&mut self) -> Option<Token> {
+        if self.peek_is(0, "#") && self.peek_is(1, "tfTF") {
+            self.advance();
             self.advance();
             return Some(
                 Token::Boolean {
@@ -239,11 +238,12 @@ impl Lexer {
     }
 
     /// Parse a single character literal
-    fn parse_character(&mut self, next: char) -> Option<Token> {
-        if next != '#' || self.peek(0) != Some('\\') {
+    fn parse_character(&mut self) -> Option<Token> {
+        if self.peek(0) != Some('#') || self.peek(1) != Some('\\') {
             return None;
         }
 
+        self.advance();
         self.advance();
 
         let mut content = String::new();
@@ -280,10 +280,11 @@ impl Lexer {
     }
 
     // Parse a string literal
-    fn parse_string(&mut self, next: char) -> Option<Token> {
-        if next != '"' {
+    fn parse_string(&mut self) -> Option<Token> {
+        if self.peek(0) != Some('"') {
             return None;
         }
+        self.advance();
 
         // ignore errors in escape sequences until the end of the string is
         // found, means more accurate error recovery
@@ -328,19 +329,24 @@ impl Lexer {
         )
     }
 
-    fn parse_symbol(&mut self, next: char) -> Option<Token> {
-        let tok = match next {
+    fn parse_symbol(&mut self) -> Option<Token> {
+        let peek = match self.peek(0) {
+            Some(c) => c,
+            None => return None,
+        };
+
+        let tok = match peek {
             '(' => Token::LeftParen,
             ')' => Token::RightParen,
             '\'' => Token::Quote,
             '`' => Token::BackQuote,
             '.' => Token::Dot,
 
-            '#' if self.peek(0) == Some('(') => {
+            '#' if self.peek(1) == Some('(') => {
                 self.advance();
                 Token::VecStart
             }
-            ',' if self.peek(0) == Some('@') => {
+            ',' if self.peek(1) == Some('@') => {
                 self.advance();
                 Token::CommaAt
             }
@@ -348,6 +354,8 @@ impl Lexer {
 
             _ => return None,
         };
+
+        self.advance();
 
         Some(tok.into())
     }
@@ -383,7 +391,7 @@ impl Lexer {
     /// is a character a valid delimiter between tokens
     fn is_delimiter(&self, val: Option<char>) -> bool {
         if let Some(val) = val {
-            matches!(val, '(' | ')' | '"' | ';' | ' ' | '\n') || val.is_whitespace()
+            matches!(val, '|' | '(' | ')' | '"' | ';') || val.is_whitespace()
         } else {
             true
         }
