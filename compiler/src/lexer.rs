@@ -10,7 +10,7 @@ use std::{fmt, ops::Range};
 use lasso::Spur;
 use thiserror::Error;
 
-use crate::{environment::Environment, numerics::NumericLiteralString};
+use crate::{environment::Environment, numerics::NumericLiteralString, unicode};
 
 #[derive(Debug, Error, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LexerError {
@@ -248,7 +248,7 @@ impl Lexer {
 
         let mut content = String::new();
         while let Some(char) = self.peek(0) {
-            if char.is_whitespace() || ("\"();".contains(char) && !content.is_empty()) {
+            if self.is_delimiter(Some(char)) {
                 break;
             } else {
                 content.push(char);
@@ -365,7 +365,7 @@ impl Lexer {
         loop {
             match self.peek(0) {
                 // whitespace
-                Some(c) if c.is_whitespace() => {
+                Some(c) if Self::is_whitespace(c) => {
                     self.advance();
                 }
                 // comments
@@ -391,10 +391,14 @@ impl Lexer {
     /// is a character a valid delimiter between tokens
     fn is_delimiter(&self, val: Option<char>) -> bool {
         if let Some(val) = val {
-            matches!(val, '|' | '(' | ')' | '"' | ';') || val.is_whitespace()
+            matches!(val, '|' | '(' | ')' | '"' | ';') || Self::is_whitespace(val)
         } else {
             true
         }
+    }
+
+    fn is_whitespace(val: char) -> bool {
+        unicode::WHITESPACE.contains(&val)
     }
 
     /// returns if the count 'th peeked character is in val

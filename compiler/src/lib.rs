@@ -8,3 +8,5 @@ pub mod parser;
 pub mod run;
 pub mod value;
 pub mod vm;
+
+mod unicode;
