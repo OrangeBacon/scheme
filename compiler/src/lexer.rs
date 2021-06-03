@@ -36,7 +36,7 @@ pub enum LexerError {
     DecimalRadix,
 
     #[error("Invalid character in identifier")]
-    InvalidIdentifier,
+    InvalidIdentifier { character: WithLocation<char> },
 
     #[error("Invalid character in decimal exponential suffix")]
     InvalidExponential,
@@ -169,11 +169,6 @@ impl Lexer {
 
     /// Get the next token and its source location
     pub fn get_token_loc(&mut self, env: &mut Environment) -> WithLocation<Token> {
-        // need to skip whitespace before recording line and column positions
-        // otherwise the whitespace will be included in the token's source
-        // location
-        self.skip_whitespace();
-
         let tok = self.get_token(env);
 
         let length = self.current - self.start;
@@ -383,11 +378,6 @@ impl Lexer {
         }
     }
 
-    /// is a character a valid letter for the start of an identifier
-    fn is_initial(&self, c: char) -> bool {
-        c.is_alphabetic() || "!$%&*/:<=>?^_~".contains(c)
-    }
-
     /// is a character a valid delimiter between tokens
     fn is_delimiter(&self, val: Option<char>) -> bool {
         if let Some(val) = val {
@@ -407,6 +397,13 @@ impl Lexer {
             val.contains(peek)
         } else {
             false
+        }
+    }
+
+    /// advances n characters and discards the result
+    fn advance_n(&mut self, count: usize) {
+        for _ in 0..count {
+            self.advance();
         }
     }
 

@@ -1,80 +1,171 @@
-use crate::environment::Environment;
+use crate::{environment::Environment, lexer::WithLocation};
 
 use super::{Lexer, LexerError, Token};
+
+const SPECIAL_INITIAL: &str = "!$%&*/:<=>?@^_~";
+const SPECIAL_SUBSEQUENT: &str = "+-.@";
 
 impl Lexer {
     /// Parse a new identifier
     pub fn parse_identifier(&mut self, env: &mut Environment) -> Option<Token> {
-        // peculiar identifiers  '+', '-', '...'
-        if self.peek_is(0, "+") && self.is_delimiter(self.peek(1)) {
-            self.advance();
-            return Some(
-                Token::Identifier {
-                    value: env.symbols_mut().get_or_intern_static("+"),
-                    error: None,
-                }
-                .into(),
-            );
+        if self.peek_is(0, "|") {
+            todo!()
         }
 
-        if self.peek_is(0, "-") && self.is_delimiter(self.peek(1)) {
-            self.advance();
-            return Some(
-                Token::Identifier {
-                    value: env.symbols_mut().get_or_intern_static("-"),
-                    error: None,
-                }
-                .into(),
-            );
+        let identifier = self.peek_until_delimiter();
+
+        // if this fails no identifier was parsed, it went straight into a delimiter
+        let first = identifier.chars().next()?;
+
+        if first.is_ascii_alphabetic() || SPECIAL_INITIAL.contains(first) {
+            self.normal_identifier(identifier, env)
+        } else if "+-.".contains(first) {
+            self.peculiar_identifier(identifier, env)
+        } else {
+            None
         }
+    }
 
-        if self.peek_is(0, ".")
-            && self.peek_is(1, ".")
-            && self.peek_is(2, ".")
-            && self.is_delimiter(self.peek(3))
-        {
-            self.advance();
-            self.advance();
-            self.advance();
-            return Some(
-                Token::Identifier {
-                    value: env.symbols_mut().get_or_intern_static("..."),
-                    error: None,
-                }
-                .into(),
-            );
-        }
+    /// Parse a regular identifier
+    ///〈identifier〉−→〈initial〉〈subsequent〉*
+    ///〈initial〉−→〈letter〉|〈special initial〉
+    ///〈subsequent〉−→〈initial〉|〈digit〉|〈special subsequent〉
+    fn normal_identifier(&mut self, identifier: String, env: &mut Environment) -> Option<Token> {
+        let error = self.check_subsequent(&identifier, 0);
 
-        // regular identifiers
-        let peek = self.peek(0).unwrap_or('\x00');
-        if self.is_initial(peek) {
-            let mut ident = String::from(peek);
-            self.advance();
+        self.advance_n(identifier.len());
 
-            while let Some(ch) = self.peek(0) {
-                if ch.is_numeric() || self.is_initial(ch) || "+-.@".contains(ch) {
-                    self.advance();
-                    ident.push(ch);
-                } else {
-                    break;
-                }
+        let ident = env.symbols_mut().get_or_intern(identifier);
+
+        Some(Token::Identifier {
+            value: ident,
+            error,
+        })
+    }
+
+    fn peculiar_identifier(&mut self, identifier: String, env: &mut Environment) -> Option<Token> {
+        // check for exceptions to the peculiar identifier rule
+        if identifier.is_ascii() {
+            match &identifier.to_ascii_lowercase()[..] {
+                "+i" => todo!(),
+                "-i" => todo!(),
+                "+inf.0" => todo!(),
+                "-inf.0" => todo!(),
+                "+nan.0" => todo!(),
+                "-nan.0" => todo!(),
+                _ => (),
             }
+        }
 
-            let error = if !self.is_delimiter(self.peek(0)) {
-                Some(LexerError::InvalidIdentifier)
-            } else {
-                None
-            };
+        //〈peculiar identifier〉−→〈explicit sign〉
+        if identifier.len() == 1 && matches!(identifier.chars().next(), Some('+' | '-')) {
+            self.advance_n(identifier.len());
+            let ident = env.symbols_mut().get_or_intern(identifier);
 
-            return Some(
-                Token::Identifier {
-                    value: env.symbols_mut().get_or_intern(ident),
-                    error,
-                }
-                .into(),
-            );
+            return Some(Token::Identifier {
+                value: ident,
+                error: None,
+            });
+        } else if identifier.len() == 1 {
+            return None;
+        }
+
+        // identifier will always have a length >= 1 when this is called, as
+        // length == 1 has been checked, below here length is always >= 2
+        let mut iter = identifier.chars();
+        let first = iter.next()?;
+        let second = iter.next()?;
+
+        //〈peculiar identifier〉−→〈explicit sign〉〈sign subsequent〉〈subsequent〉*
+        //〈peculiar identifier〉−→ .〈dot subsequent〉〈subsequent〉*
+        if ("+-".contains(first)
+            && (second.is_ascii_alphabetic()
+                || SPECIAL_INITIAL.contains(second)
+                || "+-@".contains(second)))
+            || (first == '.'
+                && (second.is_ascii_alphabetic()
+                    || SPECIAL_INITIAL.contains(second)
+                    || "+-@.".contains(second)))
+        {
+            let error = self.check_subsequent(&identifier[2..], 2);
+
+            self.advance_n(identifier.len());
+
+            let ident = env.symbols_mut().get_or_intern(identifier);
+
+            return Some(Token::Identifier {
+                value: ident,
+                error,
+            });
+        } else if identifier.len() == 2 {
+            return None;
+        }
+
+        // length == 1 or 2 has been checked, below here length is always >= 3
+        let third = iter.next()?;
+
+        //〈peculiar identifier〉−→〈explicit sign〉.〈dot subsequent〉〈subsequent〉*
+        if "+-".contains(first)
+            && second == '.'
+            && (third.is_ascii_alphabetic()
+                || SPECIAL_INITIAL.contains(third)
+                || "+-@.".contains(third))
+        {
+            let error = self.check_subsequent(&identifier[3..], 3);
+
+            self.advance_n(identifier.len());
+
+            let ident = env.symbols_mut().get_or_intern(identifier);
+
+            return Some(Token::Identifier {
+                value: ident,
+                error,
+            });
         }
 
         None
+    }
+
+    /// check if all characters in a string are valid 〈subsequent〉
+    fn check_subsequent(&self, identifier: &str, position_offset: usize) -> Option<LexerError> {
+        let mut error = None;
+
+        for (idx, ch) in identifier.chars().enumerate() {
+            // todo: extend this to unicode identifiers, not just ascii
+            if !(ch.is_ascii_alphabetic()
+                || SPECIAL_INITIAL.contains(ch)
+                || ch.is_ascii_digit()
+                || SPECIAL_SUBSEQUENT.contains(ch))
+                && error == None
+            {
+                error = Some(LexerError::InvalidIdentifier {
+                    character: WithLocation {
+                        file: self.file_idx,
+                        length: 1,
+                        start_offset: self.start + idx + position_offset,
+                        content: ch,
+                    },
+                });
+            }
+        }
+
+        error
+    }
+
+    /// Peek the entire contents of what is presumed to be a single token
+    /// and return it as a string
+    fn peek_until_delimiter(&self) -> String {
+        let mut result = String::new();
+
+        let mut i = 0;
+        while let Some(ch) = self.peek(i) {
+            if self.is_delimiter(Some(ch)) {
+                break;
+            }
+            i += 1;
+            result.push(ch);
+        }
+
+        result
     }
 }
