@@ -1,4 +1,5 @@
 pub mod bytecode;
+pub mod config;
 pub mod environment;
 pub mod ir;
 pub mod lexer;

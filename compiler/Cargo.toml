@@ -16,6 +16,7 @@ lasso = "0.5"
 num-bigint = "0.4"
 num-traits = "0.2"
 num-derive = "0.3"
+linkme = { version = "0.2", optional = true }
 
 [build-dependencies]
 reqwest = { version = "0.11", features = ["blocking"] }

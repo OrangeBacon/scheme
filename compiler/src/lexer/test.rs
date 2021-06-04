@@ -1,11 +1,11 @@
 #![cfg(test)]
 
-use crate::{environment::Environment, run::RuntimeConfig};
+use crate::{config::Configuration, environment::Environment};
 
 use super::{Lexer, Token, WithLocation};
 
 fn driver(source: impl Into<String>) -> (Environment, Vec<WithLocation<Token>>) {
-    let mut env = Environment::null(RuntimeConfig::new());
+    let mut env = Environment::null(Configuration::new());
     let file = env.add_file("test source".to_owned(), source.into());
 
     let mut lexer = Lexer::new(file, &env);

@@ -2,7 +2,7 @@ use std::{collections::HashMap, ops::Range};
 
 use lasso::{Capacity, Rodeo, Spur};
 
-use crate::{ir::IrBuilder, memory::Heap, parser::Parser, run::RuntimeConfig, value::Value};
+use crate::{config::Configuration, ir::IrBuilder, memory::Heap, parser::Parser, value::Value};
 
 #[derive(Debug, Clone)]
 pub struct File {
@@ -31,7 +31,7 @@ impl File {
 
 #[derive(Debug)]
 pub struct Environment {
-    config: RuntimeConfig,
+    config: Configuration,
     files: Vec<File>,
 
     symbols: Rodeo,
@@ -50,7 +50,7 @@ pub struct Environment {
 // - interaction-environment => r5rs + sfri's + user supplied extra procedures
 
 impl Environment {
-    pub fn null(config: impl Into<RuntimeConfig>) -> Self {
+    pub fn null(config: impl Into<Configuration>) -> Self {
         Self {
             files: Vec::with_capacity(0),
             config: config.into(),
@@ -79,7 +79,7 @@ impl Environment {
         }
     }
 
-    pub fn config(&self) -> &RuntimeConfig {
+    pub fn config(&self) -> &Configuration {
         &self.config
     }
 

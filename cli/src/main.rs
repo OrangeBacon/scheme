@@ -10,8 +10,9 @@ use thiserror::Error;
 
 use compiler::{
     bytecode::{BytecodeChunk, OpCode},
+    config::Configuration,
     run,
-    run::{RuntimeConfig, SourceFile},
+    run::SourceFile,
     vm::VM,
 };
 
@@ -118,7 +119,7 @@ fn run() -> Result<()> {
     }
 
     // get the base configuration
-    let config = RuntimeConfig::new();
+    let config = Configuration::new();
 
     run::run(sources, config)?;
 
