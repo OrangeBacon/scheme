@@ -35,7 +35,7 @@ fn identifier_value(source: &str, result: &str) {
         tokens[0].extract(),
         WithLocation {
             file: 0,
-            length: result.len(),
+            length: result.chars().count(),
             start_offset: 0,
             content: ()
         }
@@ -44,6 +44,7 @@ fn identifier_value(source: &str, result: &str) {
         assert_eq!(env.symbols().resolve(value), result);
         assert!(error.is_none());
     } else {
+        println!("{:?}", tokens);
         panic!("Didn't get identifier from test");
     }
 }
@@ -67,6 +68,8 @@ fn regular_identifiers() {
             "the-word-recursion-has-many-meanings",
             "the-word-recursion-has-many-meanings",
         ),
+        ("\u{1f9cb}", "\u{1f9cb}"),
+        ("🟠", "🟠"),
     ];
 
     for (source, result) in IDENTIFIERS {

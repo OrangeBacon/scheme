@@ -1,4 +1,6 @@
-use crate::{environment::Environment, lexer::WithLocation};
+use std::{cmp::Ordering, ops::Range};
+
+use crate::{environment::Environment, lexer::WithLocation, unicode};
 
 use super::{Lexer, LexerError, Token};
 
@@ -17,7 +19,10 @@ impl Lexer {
         // if this fails no identifier was parsed, it went straight into a delimiter
         let first = identifier.chars().next()?;
 
-        if first.is_ascii_alphabetic() || SPECIAL_INITIAL.contains(first) {
+        if first.is_ascii_alphabetic()
+            || SPECIAL_INITIAL.contains(first)
+            || unicode_range(unicode::ID_START, first)
+        {
             self.normal_identifier(identifier, env)
         } else if "+-.".contains(first) {
             self.peculiar_identifier(identifier, env)
@@ -132,11 +137,14 @@ impl Lexer {
 
         for (idx, ch) in identifier.chars().enumerate() {
             // todo: extend this to unicode identifiers, not just ascii
-            if !(ch.is_ascii_alphabetic()
-                || SPECIAL_INITIAL.contains(ch)
-                || ch.is_ascii_digit()
-                || SPECIAL_SUBSEQUENT.contains(ch))
-                && error == None
+            if error == None
+                && !(ch.is_ascii_alphabetic()
+                    || ch.is_ascii_digit()
+                    || SPECIAL_INITIAL.contains(ch)
+                    || SPECIAL_SUBSEQUENT.contains(ch)
+                    || ch == '\u{200C}' // the zero-width non-joiner
+                    || ch == '\u{200D}' // the zero-width joiner
+                    || unicode_range(unicode::ID_CONTINUE, ch))
             {
                 error = Some(LexerError::InvalidIdentifier {
                     character: WithLocation {
@@ -168,4 +176,18 @@ impl Lexer {
 
         result
     }
+}
+
+/// lookup if character is in a table
+fn unicode_range(data: &[Range<char>], ch: char) -> bool {
+    data.binary_search_by(|range| {
+        if range.contains(&ch) {
+            Ordering::Equal
+        } else if ch < range.start {
+            Ordering::Greater
+        } else {
+            Ordering::Less
+        }
+    })
+    .is_ok()
 }
