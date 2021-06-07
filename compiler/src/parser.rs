@@ -166,7 +166,7 @@ impl<'a> Parser<'a> {
         let tok = self.advance();
 
         if !tok.matches(&Token::RightParen) {
-            self.emit_error(ParseError::ExpectedToken {
+            self.env.emit_error(ParseError::ExpectedToken {
                 expect: Token::RightParen,
                 got: tok.clone(),
             });
@@ -244,7 +244,7 @@ impl<'a> Parser<'a> {
         }
 
         if !tok.matches(&Token::RightParen) {
-            self.emit_error(ParseError::ExpectedToken {
+            self.env.emit_error(ParseError::ExpectedToken {
                 expect: Token::RightParen,
                 got: tok.clone(),
             });
@@ -283,10 +283,6 @@ impl<'a> Parser<'a> {
                 _ => return tok,
             }
         }
-    }
-
-    fn emit_error(&mut self, err: ParseError) {
-        self.env.emit_error(err);
     }
 }
 

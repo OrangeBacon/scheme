@@ -60,23 +60,57 @@ impl Configuration {
             .or_else(|| Some(&[]))
     }
 
+    /// Gets a warning level flag value
+    pub fn warning_level(&self, value: Flag) -> Option<WarningLevel> {
+        self.options
+            .get(&value)
+            .and_then(|kind| match kind {
+                FlagKind::WarningLevel(val) => Some(*val),
+                _ => None,
+            })
+            .or_else(|| match value.default {
+                StaticFlagKind::WarningLevel(default) => Some(default),
+                _ => None,
+            })
+    }
+
     /// Sets a flag's boolean value.  If the flag takes a string then it is set
     /// to either "true" or "false" depending on the boolean value.  If it takes
     /// a list of strings, the string value is appended to the list.  If it takes
     /// a single boolean value, that value is set.  This is repeated for all
-    /// values referenced by an alias flag.
+    /// values referenced by an alias flag.  True and false are mapped to warn
+    /// and allow respectively for warning level options.
     pub fn set_bool(&mut self, flag: Flag, value: bool) {
         let string = if value { "true" } else { "false" };
+        let warn = if value {
+            WarningLevel::Warn
+        } else {
+            WarningLevel::Allow
+        };
 
-        self.generic_setter(flag, string.to_string(), value);
+        self.generic_setter(flag, string.to_string(), value, warn);
     }
 
     /// Sets a flag's string value.  If it takes a single string then the old one
     /// is replaced.  If it takes multiple strings, the new one is added to the
     /// list, if it is a boolean option, it is set to true.  This is repeated for
-    /// all values referenced by an alias flag.
+    /// all values referenced by an alias flag.  If the flag is a warning level,
+    /// it is set to warn.
     pub fn set_string(&mut self, flag: Flag, value: String) {
-        self.generic_setter(flag, value, true);
+        self.generic_setter(flag, value, true, WarningLevel::Warn);
+    }
+
+    /// Sets a flag's warning level value.  If it takes a string, then the warning
+    /// level is converted to a string, if it takes a boolean true => not-fatal,
+    /// false => fatal error, This is repeated for all values referenced by an
+    /// alias flag.
+    pub fn set_warning_level(&mut self, flag: Flag, value: WarningLevel) {
+        let bool = match value {
+            WarningLevel::Allow => true,
+            WarningLevel::Warn => true,
+            WarningLevel::Deny => false,
+        };
+        self.generic_setter(flag, format!("{:?}", value), bool, value)
     }
 
     /// Sets the value of a flag to either the string or boolean value passed
@@ -85,7 +119,7 @@ impl Configuration {
     /// other and not repeatedly set the values, however to make a flag easier
     /// to understand recursive aliases should be avoided, this is only here
     /// in case of a likely mistake.
-    fn generic_setter(&mut self, flag: Flag, string: String, bool: bool) {
+    fn generic_setter(&mut self, flag: Flag, string: String, bool: bool, warning: WarningLevel) {
         let mut checked = vec![];
         let mut todo = vec![flag];
 
@@ -102,6 +136,7 @@ impl Configuration {
                     FlagKind::Boolean(val) => *val = bool,
                     FlagKind::String(val) => *val = string.clone(),
                     FlagKind::StringList(val) => val.push(string.clone()),
+                    FlagKind::WarningLevel(val) => *val = warning,
                 }
             } else {
                 // The value has not been set, so it should be added
@@ -122,6 +157,9 @@ impl Configuration {
                     StaticFlagKind::StringList => {
                         self.options
                             .insert(flag, FlagKind::StringList(vec![string.clone()]));
+                    }
+                    StaticFlagKind::WarningLevel(_) => {
+                        self.options.insert(flag, FlagKind::WarningLevel(warning));
                     }
                 };
             }
@@ -158,7 +196,9 @@ impl Configuration {
 /// The type of a configuration option, options with different categories
 /// can have the same name, so this is needed to differentiate between them
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-pub enum ConfigurationCategory {}
+pub enum ConfigurationCategory {
+    Warning,
+}
 
 /// An optional configuration option that can be passed to the language
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
@@ -211,8 +251,15 @@ impl Flag {
     /// Set an option to take multiple strings
     pub const fn list(self) -> Self {
         Self {
-            // list 0 is created in the config constructor, will always be empty
             default: StaticFlagKind::StringList,
+            ..self
+        }
+    }
+
+    /// Set an option to take a warning level
+    pub const fn warning(self, value: WarningLevel) -> Self {
+        Self {
+            default: StaticFlagKind::WarningLevel(value),
             ..self
         }
     }
@@ -229,6 +276,7 @@ enum StaticFlagKind {
     Alias(&'static [&'static Flag]),
     String(&'static str),
     Boolean(bool),
+    WarningLevel(WarningLevel),
     StringList,
 }
 
@@ -238,4 +286,13 @@ enum FlagKind {
     String(String),
     Boolean(bool),
     StringList(Vec<String>),
+    WarningLevel(WarningLevel),
+}
+
+/// The severity of an individual warning message
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
+pub enum WarningLevel {
+    Allow,
+    Warn,
+    Deny,
 }

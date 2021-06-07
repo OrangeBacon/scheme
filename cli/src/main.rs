@@ -11,6 +11,8 @@ use thiserror::Error;
 use compiler::{
     bytecode::{BytecodeChunk, OpCode},
     config::Configuration,
+    flags::W_ERROR,
+    lexer::W_UNICODE_IDENTIFIERS,
     run,
     run::SourceFile,
     vm::VM,
@@ -119,7 +121,8 @@ fn run() -> Result<()> {
     }
 
     // get the base configuration
-    let config = Configuration::new();
+    let mut config = Configuration::new();
+    //config.set_warning_level(W_UNICODE_IDENTIFIERS, compiler::config::WarningLevel::Deny);
 
     run::run(sources, config)?;
 

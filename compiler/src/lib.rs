@@ -11,3 +11,8 @@ pub mod value;
 pub mod vm;
 
 mod unicode;
+
+pub mod flags {
+    pub use crate::environment::W_ERROR;
+    pub use crate::lexer::W_UNICODE_IDENTIFIERS;
+}

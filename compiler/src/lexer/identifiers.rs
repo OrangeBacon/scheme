@@ -1,6 +1,11 @@
 use std::{cmp::Ordering, ops::Range};
 
-use crate::{environment::Environment, lexer::WithLocation, unicode};
+use crate::{
+    config::{ConfigurationCategory, Flag},
+    environment::Environment,
+    lexer::WithLocation,
+    unicode,
+};
 
 use super::{Lexer, LexerError, Token};
 
@@ -36,7 +41,7 @@ impl Lexer {
     ///〈initial〉−→〈letter〉|〈special initial〉
     ///〈subsequent〉−→〈initial〉|〈digit〉|〈special subsequent〉
     fn normal_identifier(&mut self, identifier: String, env: &mut Environment) -> Option<Token> {
-        let error = self.check_subsequent(&identifier, 0);
+        let error = self.check_subsequent(&identifier, 0, env);
 
         self.advance_n(identifier.len());
 
@@ -92,7 +97,7 @@ impl Lexer {
                     || SPECIAL_INITIAL.contains(second)
                     || "+-@.".contains(second)))
         {
-            let error = self.check_subsequent(&identifier[2..], 2);
+            let error = self.check_subsequent(&identifier[2..], 2, env);
 
             self.advance_n(identifier.len());
 
@@ -116,7 +121,7 @@ impl Lexer {
                 || SPECIAL_INITIAL.contains(third)
                 || "+-@.".contains(third))
         {
-            let error = self.check_subsequent(&identifier[3..], 3);
+            let error = self.check_subsequent(&identifier[3..], 3, env);
 
             self.advance_n(identifier.len());
 
@@ -132,11 +137,15 @@ impl Lexer {
     }
 
     /// check if all characters in a string are valid 〈subsequent〉
-    fn check_subsequent(&self, identifier: &str, position_offset: usize) -> Option<LexerError> {
+    fn check_subsequent(
+        &self,
+        identifier: &str,
+        position_offset: usize,
+        env: &mut Environment,
+    ) -> Option<LexerError> {
         let mut error = None;
 
         for (idx, ch) in identifier.chars().enumerate() {
-            // todo: extend this to unicode identifiers, not just ascii
             if error == None
                 && !(ch.is_ascii_alphabetic()
                     || ch.is_ascii_digit()
@@ -154,6 +163,25 @@ impl Lexer {
                         content: ch,
                     },
                 });
+            }
+        }
+
+        if error == None && !identifier.is_ascii() {
+            for (idx, ch) in identifier.chars().enumerate() {
+                if !ch.is_ascii() {
+                    env.emit_warning(
+                        W_UNICODE_IDENTIFIERS,
+                        LexerError::UnicodeIdentifier {
+                            character: WithLocation {
+                                file: self.file_idx,
+                                length: 1,
+                                start_offset: self.start + idx + position_offset,
+                                content: ch,
+                            },
+                        },
+                    );
+                    return None;
+                }
             }
         }
 
@@ -191,3 +219,8 @@ fn unicode_range(data: &[Range<char>], ch: char) -> bool {
     })
     .is_ok()
 }
+
+pub static W_UNICODE_IDENTIFIERS: Flag =
+    Flag::new(ConfigurationCategory::Warning, "unicode_identifiers")
+        .warning(crate::config::WarningLevel::Allow)
+        .help("Should identifiers containing non ascii unicode characters be allowed");

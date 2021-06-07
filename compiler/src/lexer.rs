@@ -3,6 +3,7 @@ mod location;
 mod numbers;
 mod test;
 
+pub use self::identifiers::W_UNICODE_IDENTIFIERS;
 pub use self::location::*;
 
 use std::{fmt, ops::Range};
@@ -35,7 +36,7 @@ pub enum LexerError {
     #[error("Decimal numbers only supported in base 10")]
     DecimalRadix,
 
-    #[error("Invalid character in identifier")]
+    #[error("Invalid character in identifier: {character:?}")]
     InvalidIdentifier { character: WithLocation<char> },
 
     #[error("Invalid character in decimal exponential suffix")]
@@ -43,6 +44,9 @@ pub enum LexerError {
 
     #[error("Invalid character following numeric literal")]
     InvalidNumericTerminator,
+
+    #[error("Non-ascii unicode character contained within identifier: {character:?}")]
+    UnicodeIdentifier { character: WithLocation<char> },
 }
 
 /// Individual units of source code

@@ -1,11 +1,19 @@
 #![cfg(test)]
 
-use crate::{config::Configuration, environment::Environment};
+use crate::{
+    config::{Configuration, WarningLevel},
+    environment::Environment,
+    flags::W_ERROR,
+    lexer::W_UNICODE_IDENTIFIERS,
+};
 
 use super::{Lexer, Token, WithLocation};
 
 fn driver(source: impl Into<String>) -> (Environment, Vec<WithLocation<Token>>) {
-    let mut env = Environment::null(Configuration::new());
+    let mut config = Configuration::new();
+    config.set_warning_level(W_UNICODE_IDENTIFIERS, WarningLevel::Deny);
+
+    let mut env = Environment::null(config);
     let file = env.add_file("test source".to_owned(), source.into());
 
     let mut lexer = Lexer::new(file, &env);

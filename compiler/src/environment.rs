@@ -2,7 +2,13 @@ use std::{collections::HashMap, ops::Range};
 
 use lasso::{Capacity, Rodeo, Spur};
 
-use crate::{config::Configuration, ir::IrBuilder, memory::Heap, parser::Parser, value::Value};
+use crate::{
+    config::{Configuration, ConfigurationCategory, Flag, WarningLevel},
+    ir::IrBuilder,
+    memory::Heap,
+    parser::Parser,
+    value::Value,
+};
 
 #[derive(Debug, Clone)]
 pub struct File {
@@ -35,8 +41,10 @@ pub struct Environment {
     files: Vec<File>,
 
     symbols: Rodeo,
-    errors: Vec<anyhow::Error>,
     heap: Heap,
+
+    errors: Vec<anyhow::Error>,
+    warnings: Vec<anyhow::Error>,
 
     globals: Vec<Value>,
     global_names: HashMap<Spur, usize>,
@@ -55,8 +63,9 @@ impl Environment {
             files: Vec::with_capacity(0),
             config: config.into(),
             symbols: Rodeo::with_capacity(Capacity::minimal()),
-            errors: Vec::with_capacity(0),
             heap: Heap::new(),
+            errors: Vec::with_capacity(0),
+            warnings: Vec::with_capacity(0),
             globals: Vec::with_capacity(0),
             global_names: HashMap::with_capacity(0),
         }
@@ -107,6 +116,27 @@ impl Environment {
         self.errors.push(err.into());
     }
 
+    pub fn emit_warning(&mut self, flag: Flag, warning: impl Into<anyhow::Error>) {
+        let flag = self
+            .config()
+            .warning_level(flag)
+            .unwrap_or(WarningLevel::Warn);
+
+        let warning = warning.into();
+
+        eprintln!("{:?}: {}", flag, warning);
+
+        if flag == WarningLevel::Allow {
+            return;
+        }
+
+        if flag == WarningLevel::Deny || self.config().bool(W_ERROR).unwrap_or(false) {
+            self.emit_error(warning);
+        } else {
+            self.warnings.push(warning);
+        }
+    }
+
     pub fn heap(&self) -> &Heap {
         &self.heap
     }
@@ -115,3 +145,7 @@ impl Environment {
         &mut self.heap
     }
 }
+
+pub static W_ERROR: Flag = Flag::new(ConfigurationCategory::Warning, "error")
+    .bool(false)
+    .help("Convert all compile time warnings emitted into fatal errors");
