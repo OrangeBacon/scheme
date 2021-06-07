@@ -508,9 +508,7 @@ fn print_location(
     let range = loc.source_range();
 
     let start = get_line_col(range.start, line_numbering);
-
-    // -1 because end is exclusive
-    let end = get_line_col(range.end - 1, line_numbering);
+    let end = get_line_col(range.end, line_numbering);
 
     write!(f, " {}:{}", start.0, start.1)?;
 
@@ -536,7 +534,7 @@ fn get_line_col(char_loc: usize, line_numbering: &[Range<usize>]) -> (usize, usi
         })
         .unwrap_or(0);
 
-    let col = char_loc + 1
+    let col = char_loc
         - line_numbering
             .get(line)
             .map(|range| range.start)

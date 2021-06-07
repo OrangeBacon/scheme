@@ -423,7 +423,7 @@ impl Lexer {
             let start = if let Some(prev) = self.line_numbering.last() {
                 prev.end
             } else {
-                1
+                0
             };
 
             // current is a consumed character, the ranges exclude the last character
