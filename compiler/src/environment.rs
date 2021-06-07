@@ -33,6 +33,48 @@ impl File {
     pub(crate) fn set_line_numbering(&mut self, numbers: &[Range<usize>]) {
         self.line_numbering = numbers.to_vec();
     }
+
+    /// convert character index to (line, col) for a file
+    pub fn line_col(&self, char_loc: usize) -> (usize, usize) {
+        use std::cmp::Ordering;
+
+        // special case for if the char is in the last line as it is possible that
+        // the line numbering for that line was not added if the file was not
+        // terminated by a line terminator
+        if self
+            .line_numbering
+            .last()
+            .map(|r| char_loc >= r.end)
+            .unwrap_or(false)
+        {
+            let col = self.line_numbering.last().map(|r| r.end).unwrap_or(0);
+
+            return (self.line_numbering.len() + 1, char_loc - col + 1);
+        }
+
+        let line = self
+            .line_numbering
+            .binary_search_by(|range| {
+                if range.contains(&char_loc) {
+                    Ordering::Equal
+                } else if char_loc < range.start {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            })
+            .unwrap_or(0);
+
+        let col = char_loc
+            - self
+                .line_numbering
+                .get(line)
+                .map(|range| range.start)
+                .unwrap_or(0);
+
+        // make line and column 1 indexed, not 0 indexed
+        (line + 1, col + 1)
+    }
 }
 
 #[derive(Debug)]
