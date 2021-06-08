@@ -187,9 +187,14 @@ impl Configuration {
     /// will probably not work as expected.
     pub fn lookup(&self, category: ConfigurationCategory, name: &str) -> Option<Flag> {
         self.iter()
-            .filter(|flag| flag.category == category && flag.name == name)
-            .next()
+            .find(|flag| flag.category == category && flag.name == name)
             .copied()
+    }
+}
+
+impl Default for Configuration {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

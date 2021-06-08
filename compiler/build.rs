@@ -129,23 +129,31 @@ impl GeneralCategory {
     fn id_start(&self) -> bool {
         use GeneralCategory::*;
 
-        match self {
-            UppercaseLetter | LowercaseLetter | TitlecaseLetter | ModifierLetter | OtherLetter
-            | NonspacingMark | LetterNumber | OtherNumber | DashPunctuation
-            | ConnectorPunctuation | OtherPunctuation | CurrencySymbol | MathSymbol
-            | ModifierSymbol | OtherSymbol | PrivateUse => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            UppercaseLetter
+                | LowercaseLetter
+                | TitlecaseLetter
+                | ModifierLetter
+                | OtherLetter
+                | NonspacingMark
+                | LetterNumber
+                | OtherNumber
+                | DashPunctuation
+                | ConnectorPunctuation
+                | OtherPunctuation
+                | CurrencySymbol
+                | MathSymbol
+                | ModifierSymbol
+                | OtherSymbol
+                | PrivateUse
+        )
     }
 
     fn id_continue(&self) -> bool {
         use GeneralCategory::*;
 
-        self.id_start()
-            || match self {
-                DecimalNumber | SpacingMark | EnclosingMark => true,
-                _ => false,
-            }
+        self.id_start() || matches!(self, DecimalNumber | SpacingMark | EnclosingMark)
     }
 }
 

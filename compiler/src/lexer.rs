@@ -191,7 +191,7 @@ impl Lexer {
         self.start = self.current;
 
         if self.peek(0) == None {
-            return Token::Eof.into();
+            return Token::Eof;
         }
 
         if let Some(tok) = self.parse_identifier(env) {
@@ -225,12 +225,9 @@ impl Lexer {
         if self.peek_is(0, "#") && self.peek_is(1, "tfTF") {
             self.advance();
             self.advance();
-            return Some(
-                Token::Boolean {
-                    value: self.peek_is(0, "tT"),
-                }
-                .into(),
-            );
+            return Some(Token::Boolean {
+                value: self.peek_is(0, "tT"),
+            });
         }
 
         None
@@ -265,17 +262,14 @@ impl Lexer {
             content.push('\n')
         }
 
-        Some(
-            Token::Character {
-                value: content.chars().next().unwrap_or_default(),
-                error: if content.len() != 1 {
-                    Some(LexerError::BadCharacterLiteral { chars: content })
-                } else {
-                    None
-                },
-            }
-            .into(),
-        )
+        Some(Token::Character {
+            value: content.chars().next().unwrap_or_default(),
+            error: if content.len() != 1 {
+                Some(LexerError::BadCharacterLiteral { chars: content })
+            } else {
+                None
+            },
+        })
     }
 
     // Parse a string literal
@@ -319,13 +313,10 @@ impl Lexer {
             None
         };
 
-        Some(
-            Token::String {
-                value: literal,
-                error,
-            }
-            .into(),
-        )
+        Some(Token::String {
+            value: literal,
+            error,
+        })
     }
 
     fn parse_symbol(&mut self) -> Option<Token> {
@@ -356,7 +347,7 @@ impl Lexer {
 
         self.advance();
 
-        Some(tok.into())
+        Some(tok)
     }
 
     // skips whitespace and comments that are not part of a token

@@ -38,13 +38,10 @@ impl Lexer {
         }
 
         let error = |num, error| -> Option<Token> {
-            Some(
-                Token::Number {
-                    value: Box::new(num),
-                    error: Some(error),
-                }
-                .into(),
-            )
+            Some(Token::Number {
+                value: Box::new(num),
+                error: Some(error),
+            })
         };
 
         if self.peek_is(0, "#") {
@@ -99,13 +96,10 @@ impl Lexer {
                 return error(number, LexerError::InvalidNumericTerminator);
             }
 
-            return Some(
-                Token::Number {
-                    value: Box::new(number),
-                    error: None,
-                }
-                .into(),
-            );
+            return Some(Token::Number {
+                value: Box::new(number),
+                error: None,
+            });
         }
 
         let first = match self.parse_real(&number, &mut started) {
@@ -183,16 +177,13 @@ impl Lexer {
         }
 
         if !self.is_delimiter(self.peek(0)) {
-            return error(number, LexerError::InvalidNumericTerminator.into());
+            return error(number, LexerError::InvalidNumericTerminator);
         }
 
-        Some(
-            Token::Number {
-                value: Box::new(number),
-                error: None,
-            }
-            .into(),
-        )
+        Some(Token::Number {
+            value: Box::new(number),
+            error: None,
+        })
     }
 
     fn parse_real(
