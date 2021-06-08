@@ -43,7 +43,7 @@ impl Lexer {
     fn normal_identifier(&mut self, identifier: String, env: &mut Environment) -> Option<Token> {
         let error = self.check_subsequent(&identifier, 0, env);
 
-        self.advance_n(identifier.len());
+        self.advance_n(identifier.chars().count());
 
         let ident = env.symbols_mut().get_or_intern(identifier);
 
@@ -69,7 +69,7 @@ impl Lexer {
 
         //〈peculiar identifier〉−→〈explicit sign〉
         if identifier.len() == 1 && matches!(identifier.chars().next(), Some('+' | '-')) {
-            self.advance_n(identifier.len());
+            self.advance_n(identifier.chars().count());
             let ident = env.symbols_mut().get_or_intern(identifier);
 
             return Some(Token::Identifier {
@@ -99,7 +99,7 @@ impl Lexer {
         {
             let error = self.check_subsequent(&identifier[2..], 2, env);
 
-            self.advance_n(identifier.len());
+            self.advance_n(identifier.chars().count());
 
             let ident = env.symbols_mut().get_or_intern(identifier);
 
@@ -123,7 +123,7 @@ impl Lexer {
         {
             let error = self.check_subsequent(&identifier[3..], 3, env);
 
-            self.advance_n(identifier.len());
+            self.advance_n(identifier.chars().count());
 
             let ident = env.symbols_mut().get_or_intern(identifier);
 
