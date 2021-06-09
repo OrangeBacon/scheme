@@ -14,19 +14,19 @@ use crate::{
 
 #[derive(Debug, Error)]
 pub enum ParseError {
-    #[error("Unexpected Token: {token}")]
+    #[error("Unexpected Token: {token:?}")]
     UnexpectedToken { token: WithLocation<Token> },
 
-    #[error("Invalid token: {err}")]
+    #[error("Invalid token: {err:?}")]
     InvalidToken { err: WithLocation<LexerError> },
 
-    #[error("Expected token: {expect}, got {got}")]
+    #[error("Expected token: {expect:?}, got {got:?}")]
     ExpectedToken {
         expect: Token,
         got: WithLocation<Token>,
     },
 
-    #[error("Expected expression but couldn't parse one, instead found {got}")]
+    #[error("Expected expression but couldn't parse one, instead found {got:?}")]
     ExpectedExpression { got: Token },
 }
 
@@ -462,7 +462,7 @@ impl<'a, 'b, 'c, 'd, 'e> Display for DatumPrintWrapper<'a, 'b, 'c, 'd, 'e> {
                 print_location(f, self.datum.extract(), file)?;
             }
             Datum::LexerError(err) => {
-                write!(f, "{}", err)?;
+                write!(f, "{:?}", err)?;
                 print_location(f, self.datum.extract(), file)?;
             }
         }

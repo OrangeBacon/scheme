@@ -1,12 +1,14 @@
+mod display;
 mod identifiers;
 mod location;
 mod numbers;
 mod test;
 
+pub use self::display::{LexerDisplay, TokenDisplay};
 pub use self::identifiers::W_UNICODE_IDENTIFIERS;
 pub use self::location::*;
 
-use std::{fmt, ops::Range};
+use std::ops::Range;
 
 use lasso::Spur;
 use thiserror::Error;
@@ -50,7 +52,7 @@ pub enum LexerError {
 }
 
 /// Individual units of source code
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Token {
     LeftParen,
     RightParen,
@@ -83,56 +85,6 @@ pub enum Token {
     Error {
         error: LexerError,
     },
-}
-
-impl fmt::Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Token::LeftParen => write!(f, "left paren '('")?,
-            Token::RightParen => write!(f, "right paren ')'")?,
-            Token::VecStart => write!(f, "vec start '#('")?,
-            Token::Quote => write!(f, "quote '\''")?,
-            Token::BackQuote => write!(f, "back quote '`'")?,
-            Token::Comma => write!(f, "comma ','")?,
-            Token::CommaAt => write!(f, "comma at ',@'")?,
-            Token::Dot => write!(f, "dot '.'")?,
-            Token::Identifier { value, error } => {
-                write!(f, "Identifier {:?}", value)?;
-                if let Some(error) = error {
-                    write!(f, " with error `{}`", error)?;
-                }
-            }
-            Token::Boolean { value } => {
-                if *value {
-                    write!(f, "boolean #t")?
-                } else {
-                    write!(f, "boolean #f")?
-                }
-            }
-            Token::Number { value, error } => {
-                write!(f, "{:?}", value)?;
-                if let Some(error) = error {
-                    write!(f, " with error `{}`", error)?;
-                }
-            }
-            Token::Character { value, error } => {
-                write!(f, "character {:?}", value)?;
-                if let Some(error) = error {
-                    write!(f, " with error `{}`", error)?;
-                }
-            }
-            Token::String { value, error } => {
-                write!(f, "string {:?}", value)?;
-                if let Some(error) = error {
-                    write!(f, " with error `{}`", error)?;
-                }
-            }
-            Token::Eof => write!(f, "eof")?,
-            Token::Error { error } => write!(f, "{}", error)?,
-        }
-
-        Ok(())
-    }
 }
 
 /// State used when converting a string into a token list

@@ -154,6 +154,10 @@ impl Environment {
         &self.errors
     }
 
+    pub fn warnings(&self) -> &[anyhow::Error] {
+        &self.warnings
+    }
+
     pub fn emit_error(&mut self, err: impl Into<anyhow::Error>) {
         self.errors.push(err.into());
     }

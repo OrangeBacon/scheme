@@ -1,4 +1,4 @@
-use std::{fmt, ops::Range};
+use std::ops::Range;
 
 /// Wrapper providing source location information for a type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -71,17 +71,5 @@ impl<T> WithLocation<T> {
 
     pub fn source_range(&self) -> Range<usize> {
         self.start_offset..(self.start_offset + self.length)
-    }
-}
-
-impl<T: fmt::Display> fmt::Display for WithLocation<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}:{} | {}",
-            self.start_offset,
-            self.start_offset + self.length,
-            self.content
-        )
     }
 }
