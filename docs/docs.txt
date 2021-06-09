@@ -14,6 +14,13 @@ For whitespace all possible unicode line endings are considered, that being
 line feed", "next line", "line separator" and "paragraph separator".  All other
 characters with the unicode property "whitespace" are considered as non-line
 ending whitespace.
+Symbols are normalised in the reader.  If the reader is in case sensitive
+mode (the default) NFC normalisation is used, if case insensitive mode then
+NFKC is used, these choices are the default according to unicode UAX-31.  If
+converting strings to symbols at run time, then it is recommended that this
+normalisation should also be applied, but it is not done automatically due to
+symbols using string-eq for comparison, which is not normalising.  This
+normalisation only applies to symbols, not string literals or other tokens.
 
 - Numeric Representation
 Numbers can be specified as either exact or inexact using `#e` or `#i` number
@@ -50,3 +57,13 @@ after the first `#` it is considered an error.  This also has the effect of
 making the number become inexact, this will force the number to become a
 floating point type, by default 64 bit, unless specified otherwise by a decimal
 exponent suffix.
+
+- Warning: Error
+This replaces all warnings with fatal errors, not allowing execution. Error
+reporting is not changed, the same number of errors and warnings combined should
+be reported regardless of this option.  Default = false.
+
+- Warning: Unicode Identifiers
+This warning is triggered if a non-ascii unicode character is present in an
+identifier.  Checks occur after checking if it is possible for the character to
+be in an identifier.  Default = Allow.

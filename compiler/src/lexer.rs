@@ -108,6 +108,9 @@ pub struct Lexer {
 
     /// Was the last consumed character an end of line character?
     is_eol: bool,
+
+    /// Is the lexer in a case sensitive mode? (default = true)
+    case_sensitive: bool,
 }
 
 impl Lexer {
@@ -120,6 +123,7 @@ impl Lexer {
             start: 0,
             line_numbering: vec![],
             is_eol: false,
+            case_sensitive: true,
         }
     }
 
@@ -305,6 +309,14 @@ impl Lexer {
     // skips whitespace and comments that are not part of a token
     fn skip_whitespace(&mut self) {
         loop {
+            if self.consume_ascii_insensitive("#!fold-case") {
+                self.case_sensitive = false;
+            }
+
+            if self.consume_ascii_insensitive("#!no-fold-case") {
+                self.case_sensitive = true;
+            }
+
             match self.peek(0) {
                 // whitespace
                 Some(c) if c.is_whitespace() => {
@@ -323,6 +335,32 @@ impl Lexer {
                 _ => return,
             }
         }
+    }
+
+    /// Try to consume a case insensitive ascii string from the source,
+    /// returns true if the string was found.  Assumes that a delimiter is
+    /// required after the string finishes, does not consume the delimiter.
+    fn consume_ascii_insensitive(&mut self, expected: &str) -> bool {
+        // calculate len in for loop to avoid having to iterate chars
+        // twice to count unicode code points in expected
+        let mut len = 0;
+        for (idx, val) in expected.chars().enumerate() {
+            let got = match self.peek(idx) {
+                Some(ch) => ch,
+                None => return false,
+            };
+
+            if !got.eq_ignore_ascii_case(&val) {
+                return false;
+            }
+            len += 1;
+        }
+
+        let ret = self.is_delimiter(self.peek(len));
+
+        self.advance_n(len);
+
+        ret
     }
 
     /// is a character a valid delimiter between tokens

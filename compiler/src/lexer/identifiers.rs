@@ -1,5 +1,8 @@
 use std::{cmp::Ordering, ops::Range};
 
+use lasso::Spur;
+use unicode_normalization::UnicodeNormalization;
+
 use crate::{
     config::{ConfigurationCategory, Flag},
     environment::Environment,
@@ -45,10 +48,8 @@ impl Lexer {
 
         self.advance_n(identifier.chars().count());
 
-        let ident = env.symbols_mut().get_or_intern(identifier);
-
         Some(Token::Identifier {
-            value: ident,
+            value: self.new_ident(&identifier, env),
             error,
         })
     }
@@ -88,23 +89,26 @@ impl Lexer {
 
         //〈peculiar identifier〉−→〈explicit sign〉〈sign subsequent〉〈subsequent〉*
         //〈peculiar identifier〉−→ .〈dot subsequent〉〈subsequent〉*
-        if ("+-".contains(first)
-            && (second.is_ascii_alphabetic()
-                || SPECIAL_INITIAL.contains(second)
-                || "+-@".contains(second)))
-            || (first == '.'
-                && (second.is_ascii_alphabetic()
-                    || SPECIAL_INITIAL.contains(second)
-                    || "+-@.".contains(second)))
+        let sign_ident = "+-".contains(first);
+        let dot_ident = first == '.';
+
+        // lambda to help avoid unicode_range lookup if not required
+        let second_subsequent = || {
+            SPECIAL_INITIAL.contains(second)
+                || second == '\u{200C}' // the zero-width non-joiner
+                || second == '\u{200D}' // the zero-width joiner
+                || unicode_range(unicode::ID_CONTINUE, second)
+        };
+
+        if (sign_ident && ("+-@".contains(second) || second_subsequent()))
+            || (dot_ident && ("+-@.".contains(second) || second_subsequent()))
         {
             let error = self.check_subsequent(&identifier[2..], 2, env);
 
             self.advance_n(identifier.chars().count());
 
-            let ident = env.symbols_mut().get_or_intern(identifier);
-
             return Some(Token::Identifier {
-                value: ident,
+                value: self.new_ident(&identifier, env),
                 error,
             });
         } else if identifier.len() == 2 {
@@ -125,10 +129,8 @@ impl Lexer {
 
             self.advance_n(identifier.chars().count());
 
-            let ident = env.symbols_mut().get_or_intern(identifier);
-
             return Some(Token::Identifier {
-                value: ident,
+                value: self.new_ident(&identifier, env),
                 error,
             });
         }
@@ -145,6 +147,7 @@ impl Lexer {
     ) -> Option<LexerError> {
         let mut error = None;
 
+        // check for characters being in the correct unicode ranges
         for (idx, ch) in identifier.chars().enumerate() {
             if error == None
                 && !(ch.is_ascii_alphabetic()
@@ -166,6 +169,7 @@ impl Lexer {
             }
         }
 
+        // check for unicode identifiers if no other error was returned
         if error == None && !identifier.is_ascii() {
             for (idx, ch) in identifier.chars().enumerate() {
                 if !ch.is_ascii() {
@@ -203,6 +207,18 @@ impl Lexer {
         }
 
         result
+    }
+
+    /// Create a new identifier, handles identifier normalisation
+    fn new_ident(&mut self, identifier: &str, env: &mut Environment) -> Spur {
+        // identifier normalisation
+        let identifier = if self.case_sensitive {
+            identifier.nfc().collect::<String>()
+        } else {
+            identifier.nfkc().collect::<String>()
+        };
+
+        env.symbols_mut().get_or_intern(identifier)
     }
 }
 

@@ -16,6 +16,8 @@ lasso = "0.5"
 num-bigint = "0.4"
 num-traits = "0.2"
 num-derive = "0.3"
+unicode-normalization = "0.1.19"
+
 linkme = { version = "0.2", optional = true }
 
 [build-dependencies]
