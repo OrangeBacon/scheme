@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, ops::Range};
+use std::{cmp::Ordering, iter::FromIterator, ops::Range};
 
 use lasso::Spur;
 use unicode_normalization::UnicodeNormalization;
@@ -94,7 +94,8 @@ impl Lexer {
 
         // lambda to help avoid unicode_range lookup if not required
         let second_subsequent = || {
-            SPECIAL_INITIAL.contains(second)
+            second.is_ascii_alphabetic()
+                || SPECIAL_INITIAL.contains(second)
                 || second == '\u{200C}' // the zero-width non-joiner
                 || second == '\u{200D}' // the zero-width joiner
                 || unicode_range(unicode::ID_CONTINUE, second)
@@ -192,30 +193,21 @@ impl Lexer {
         error
     }
 
-    /// Peek the entire contents of what is presumed to be a single token
-    /// and return it as a string
-    fn peek_until_delimiter(&self) -> String {
-        let mut result = String::new();
-
-        let mut i = 0;
-        while let Some(ch) = self.peek(i) {
-            if self.is_delimiter(Some(ch)) {
-                break;
-            }
-            i += 1;
-            result.push(ch);
-        }
-
-        result
-    }
-
     /// Create a new identifier, handles identifier normalisation
     fn new_ident(&mut self, identifier: &str, env: &mut Environment) -> Spur {
         // identifier normalisation
         let identifier = if self.case_sensitive {
             identifier.nfc().collect::<String>()
         } else {
-            identifier.nfkc().collect::<String>()
+            identifier
+                .chars()
+                .map(|ch| match unicode::get_casefold(ch) {
+                    Some(ch) => String::from_iter(ch),
+                    None => String::from(ch),
+                })
+                .collect::<String>()
+                .nfkc()
+                .collect::<String>()
         };
 
         env.symbols_mut().get_or_intern(identifier)

@@ -20,7 +20,10 @@ NFKC is used, these choices are the default according to unicode UAX-31.  If
 converting strings to symbols at run time, then it is recommended that this
 normalisation should also be applied, but it is not done automatically due to
 symbols using string-eq for comparison, which is not normalising.  This
-normalisation only applies to symbols, not string literals or other tokens.
+normalisation only applies to symbols, not string literals or other tokens.  To
+be more precise, when in case in-sensitive mode, the function
+`nfkc(full_casefold(symbol))` is applied before the symbol is stored internally.
+Full casefold is taken to not include any language specific mappings.
 
 - Numeric Representation
 Numbers can be specified as either exact or inexact using `#e` or `#i` number

@@ -169,10 +169,13 @@ impl Lexer {
             return tok;
         }
 
+        // assume that character with an error will be followed by more errors
+        // collect them all into one error token
+        let unexpected = self.peek_until_delimiter();
+        self.advance_n(unexpected.chars().count());
+
         Token::Error {
-            error: LexerError::UnexpectedChars {
-                chars: self.advance().map(|c| c.to_string()).unwrap_or_default(),
-            },
+            error: LexerError::UnexpectedChars { chars: unexpected },
         }
     }
 
@@ -361,6 +364,23 @@ impl Lexer {
         self.advance_n(len);
 
         ret
+    }
+
+    /// Peek the entire contents of what is presumed to be a single token
+    /// and return it as a string
+    fn peek_until_delimiter(&self) -> String {
+        let mut result = String::new();
+
+        let mut i = 0;
+        while let Some(ch) = self.peek(i) {
+            if self.is_delimiter(Some(ch)) {
+                break;
+            }
+            i += 1;
+            result.push(ch);
+        }
+
+        result
     }
 
     /// is a character a valid delimiter between tokens

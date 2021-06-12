@@ -75,3 +75,50 @@ warn: Non-ascii unicode character contained within identifier: WithLocation { fi
 
     assert_eq!(result, expected);
 }
+
+#[test]
+fn dot_identifiers() {
+    let config = Configuration::new();
+
+    let result = driver(config, ". .. ... ....");
+
+    assert_eq!(
+        result,
+        r#"1:1-2 | dot '.'
+1:3-5 | Identifier ".."
+1:6-9 | Identifier "..."
+1:10-14 | Identifier "...."
+"#
+    );
+}
+
+#[test]
+fn casefold() {
+    let config = Configuration::new();
+
+    let result = driver(config, "AA aa #!fold-case AA aa #!no-fold-case AA aa");
+
+    assert_eq!(
+        result,
+        r#"1:1-3 | Identifier "AA"
+1:4-6 | Identifier "aa"
+1:19-21 | Identifier "aa"
+1:22-24 | Identifier "aa"
+1:40-42 | Identifier "AA"
+1:43-45 | Identifier "aa"
+"#
+    );
+}
+
+#[test]
+fn error_directive() {
+    let config = Configuration::new();
+
+    let result = driver(config, "#!this-is-an-error");
+
+    assert_eq!(
+        result,
+        r##"1:1-19 | Unexpected characters: "#!this-is-an-error"
+"##
+    );
+}
