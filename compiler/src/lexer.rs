@@ -1,13 +1,14 @@
 mod display;
+mod escape;
 mod identifiers;
 mod location;
 mod numbers;
-mod test;
 
 pub use self::display::{LexerDisplay, TokenDisplay};
 pub use self::identifiers::W_UNICODE_IDENTIFIERS;
 pub use self::location::*;
 
+use std::num::ParseIntError;
 use std::ops::Range;
 
 use lasso::Spur;
@@ -15,7 +16,7 @@ use thiserror::Error;
 
 use crate::{environment::Environment, numerics::NumericLiteralString};
 
-#[derive(Debug, Error, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum LexerError {
     #[error("Unexpected characters: {chars:?}")]
     UnexpectedChars { chars: String },
@@ -49,10 +50,28 @@ pub enum LexerError {
 
     #[error("Non-ascii unicode character contained within identifier: {character:?}")]
     UnicodeIdentifier { character: WithLocation<char> },
+
+    #[error("Non-terminated `|` delimited identifier: expected `|`, found end of file")]
+    IdentifierEOF,
+
+    #[error("Unexpected end of file while parsing escape sequence")]
+    UnexpectedEOFEscapeSequence,
+
+    #[error("Expected whitespace or end of line, got {character:?}")]
+    NoWhitespaceEscapeSequenceEndOfLine { character: WithLocation<char> },
+
+    #[error("Error parsing hexadecimal unicode escape sequence: {error:?}")]
+    HexUnicodeEscape { error: WithLocation<ParseIntError> },
+
+    #[error("Number invalid unicode code point")]
+    InvalidUnicode { error: WithLocation<()> },
+
+    #[error("Could not find semi-colon after unicode escape sequence starting at {loc:?}")]
+    UnicodeEscapeSemicolon { loc: WithLocation<()> },
 }
 
 /// Individual units of source code
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Token {
     LeftParen,
     RightParen,

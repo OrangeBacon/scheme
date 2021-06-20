@@ -19,7 +19,7 @@ impl Lexer {
     /// Parse a new identifier
     pub fn parse_identifier(&mut self, env: &mut Environment) -> Option<Token> {
         if self.peek_is(0, "|") {
-            todo!()
+            return self.escaped_identifier(env);
         }
 
         let identifier = self.peek_until_delimiter();
@@ -137,6 +137,54 @@ impl Lexer {
         }
 
         None
+    }
+
+    /// Parse an escaped identifier (between two `|`)
+    fn escaped_identifier(&mut self, env: &mut Environment) -> Option<Token> {
+        // skip the starting `|`
+        self.advance();
+
+        let mut ident = String::new();
+
+        let mut error = None;
+
+        loop {
+            let ch = if let Some(ch) = self.peek(0) {
+                ch
+            } else {
+                break;
+            };
+
+            if ch == '|' {
+                break;
+            } else if ch == '\\' {
+                self.advance();
+                let escape = match self.consume_escape() {
+                    Ok(s) => s,
+                    Err(err) => {
+                        if error.is_none() {
+                            error = Some(err);
+                        }
+                        continue;
+                    }
+                };
+                ident.push_str(&escape);
+            } else {
+                self.advance();
+                ident.push(ch);
+            }
+        }
+
+        if self.peek_is(0, "|") {
+            self.advance();
+        } else if error.is_none() {
+            error = Some(LexerError::IdentifierEOF)
+        };
+
+        Some(Token::Identifier {
+            error,
+            value: self.new_ident(&ident, env),
+        })
     }
 
     /// check if all characters in a string are valid 〈subsequent〉

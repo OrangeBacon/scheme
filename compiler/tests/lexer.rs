@@ -1,3 +1,5 @@
+use pretty_assertions::assert_eq;
+
 use compiler::{
     config::Configuration,
     environment::Environment,
@@ -120,5 +122,34 @@ fn error_directive() {
         result,
         r##"1:1-19 | Unexpected characters: "#!this-is-an-error"
 "##
+    );
+}
+
+#[test]
+fn escaped_identifier() {
+    let config = Configuration::new();
+    let result = driver(
+        config,
+        r#"|two words| |two\x20;words| |H\x65;llo| |\x3BB;|
+        |\x9;\x9;| |\t\t| |||no-space-either-side||hello \
+        world| |\a\b\t\n\r| |\xhello;| |\x20| |non terminated identifier"#,
+    );
+
+    assert_eq!(
+        result,
+        r#"1:1-12 | Identifier "two words"
+1:13-28 | Identifier "two words"
+1:29-40 | Identifier "Hello"
+1:41-49 | Identifier "λ"
+2:9-19 | Identifier "\t\t"
+2:20-26 | Identifier "\t\t"
+2:27-29 | Identifier ""
+2:29-51 | Identifier "no-space-either-side"
+2:51-74 | Identifier "hello world"
+3:16-28 | Identifier "\u{7}\u{8}\t\n\r"
+3:29-39 | Identifier "" with error `Error parsing hexadecimal unicode escape sequence: WithLocation { file: 0, length: 5, start_offset: 140, content: ParseIntError { kind: InvalidDigit } }`
+3:40-46 | Identifier "" with error `Could not find semi-colon after unicode escape sequence starting at WithLocation { file: 0, length: 2, start_offset: 150, content: () }`
+3:47-73 | Identifier "non terminated identifier" with error `Non-terminated `|` delimited identifier: expected `|`, found end of file`
+"#
     );
 }
