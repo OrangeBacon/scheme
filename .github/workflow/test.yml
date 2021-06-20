@@ -1,0 +1,26 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - "main"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test ${{matrix.os}}
+    runs-on: ${{matrix.os}}-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu, windows]
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          override: true
+          default: true
+      - run: cargo test --release
