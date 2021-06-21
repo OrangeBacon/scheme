@@ -1,6 +1,24 @@
 use std::{env, fs, ops::Range, path::Path};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+fn main() -> Result<()> {
+    if let Err(err) = generate() {
+        if char::UNICODE_VERSION == (13, 0, 0) {
+            // if unable to generate the script from data files (e.g. if the
+            // unicode website is down ... ) get a pre generated version
+            // from a github gist
+            // This should not be needed ugh
+            pre_generated()?;
+        } else {
+            return Err(err);
+        }
+    }
+
+    Ok(())
+}
+
+fn generate() -> Result<()> {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("unicode.rs");
 
@@ -169,7 +187,7 @@ impl GeneralCategory {
 }
 
 // retrieve and parse the unicodedata.txt file
-fn unicode_data() -> Result<Vec<(u32, GeneralCategory)>, Box<dyn std::error::Error>> {
+fn unicode_data() -> Result<Vec<(u32, GeneralCategory)>> {
     let unicode_version = format!(
         "{}.{}.{}",
         char::UNICODE_VERSION.0,
@@ -194,7 +212,7 @@ fn unicode_data() -> Result<Vec<(u32, GeneralCategory)>, Box<dyn std::error::Err
 }
 
 /// retrieve and parse the unicode case fold data
-fn casefold_data() -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
+fn casefold_data() -> Result<Vec<(String, String, String)>> {
     let unicode_version = format!(
         "{}.{}.{}",
         char::UNICODE_VERSION.0,
@@ -245,4 +263,16 @@ fn compress_data(input: &[u32]) -> Vec<Range<char>> {
         .collect::<Vec<_>>();
 
     output
+}
+
+fn pre_generated() -> Result<()> {
+    let out_dir = env::var_os("OUT_DIR").unwrap();
+    let dest_path = Path::new(&out_dir).join("unicode.rs");
+
+    let pre_generated = reqwest::blocking::get("https://gist.githubusercontent.com/OrangeBacon/ff701218dc0d77bb45b949c0e4bf4776/raw/7d262049ba26aeca022685ca91396e33b0196534/unicode13.0.0.rs")?
+    .text()?;
+
+    fs::write(&dest_path, pre_generated)?;
+
+    Ok(())
 }
