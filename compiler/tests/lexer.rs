@@ -153,3 +153,23 @@ fn escaped_identifier() {
 "#
     );
 }
+
+#[test]
+fn comments() {
+    let config = Configuration::new();
+    let result = driver(
+        config,
+        r##"#|hi|# hello #| nested #| comment |#|# #; (datum comment)"##,
+    );
+
+    assert_eq!(
+        result,
+        r#"1:8-13 | Identifier "hello"
+1:40-42 | datum comment #;
+1:43-44 | left paren '('
+1:44-49 | Identifier "datum"
+1:50-57 | Identifier "comment"
+1:57-58 | right paren ')'
+"#
+    );
+}

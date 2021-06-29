@@ -137,6 +137,11 @@ impl<'a> Parser<'a> {
 
             Token::VecStart => self.parse_vector(loc),
 
+            Token::DatumComment => {
+                let _ = self.parse_datum();
+                self.parse_datum()
+            }
+
             tok @ (Token::Quote | Token::BackQuote | Token::Comma | Token::CommaAt) => {
                 self.parse_abbreviation(loc, tok)
             }

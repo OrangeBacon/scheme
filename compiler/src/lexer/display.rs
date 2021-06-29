@@ -15,6 +15,7 @@ impl fmt::Debug for Token {
             Token::Comma => write!(f, "comma ','")?,
             Token::CommaAt => write!(f, "comma at ',@'")?,
             Token::Dot => write!(f, "dot '.'")?,
+            Token::DatumComment => write!(f, "datum comment #;")?,
             Token::Identifier { value, error } => {
                 write!(f, "Identifier {:?}", value)?;
                 if let Some(error) = error {

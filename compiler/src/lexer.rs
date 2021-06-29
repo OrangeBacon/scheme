@@ -81,6 +81,7 @@ pub enum Token {
     Comma,
     CommaAt,
     Dot,
+    DatumComment,
     Identifier {
         value: Spur,
         error: Option<LexerError>,
@@ -310,11 +311,15 @@ impl Lexer {
             '`' => Token::BackQuote,
             '.' => Token::Dot,
 
-            '#' if self.peek(1) == Some('(') => {
+            '#' if self.peek_is(1, "(") => {
                 self.advance();
                 Token::VecStart
             }
-            ',' if self.peek(1) == Some('@') => {
+            '#' if self.peek_is(1, ";") => {
+                self.advance();
+                Token::DatumComment
+            }
+            ',' if self.peek_is(1, "@") => {
                 self.advance();
                 Token::CommaAt
             }
@@ -354,7 +359,30 @@ impl Lexer {
                         }
                     }
                 }
+                Some('#') if self.peek_is(1, "|") => self.nested_comment(),
                 _ => return,
+            }
+        }
+    }
+
+    fn nested_comment(&mut self) {
+        self.advance_n(2);
+
+        let mut count = 0;
+
+        loop {
+            if self.peek_is(0, "#") && self.peek_is(1, "|") {
+                self.advance_n(2);
+                count += 1;
+            } else if self.peek_is(0, "|") && self.peek_is(1, "#") {
+                self.advance_n(2);
+                if count == 0 {
+                    break;
+                } else {
+                    count -= 1;
+                }
+            } else {
+                self.advance();
             }
         }
     }
