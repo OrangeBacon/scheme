@@ -173,3 +173,45 @@ fn comments() {
 "#
     );
 }
+
+#[test]
+fn booleans() {
+    let config = Configuration::new();
+    let result = driver(
+        config,
+        "#t #f #T other #F #true stuff #false #TrUe () #FaLsE",
+    );
+
+    assert_eq!(
+        result,
+        r#"1:1-3 | boolean #t
+1:4-6 | boolean #f
+1:7-9 | boolean #t
+1:10-15 | Identifier "other"
+1:16-18 | boolean #f
+1:19-24 | boolean #t
+1:25-30 | Identifier "stuff"
+1:31-37 | boolean #f
+1:38-43 | boolean #t
+1:44-45 | left paren '('
+1:45-46 | right paren ')'
+1:47-53 | boolean #f
+"#
+    );
+}
+
+#[test]
+fn characters() {
+    let config = Configuration::new();
+    let result = driver(config, r#"#\alarm #\a #\backspace #\ backspace"#);
+
+    assert_eq!(
+        result,
+        r#"1:1-8 | character '\u{7}'
+1:9-12 | character 'a'
+1:13-24 | character '\u{8}'
+1:25-28 | character ' '
+1:28-37 | Identifier "backspace"
+"#
+    );
+}

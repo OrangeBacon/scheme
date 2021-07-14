@@ -201,12 +201,18 @@ impl Lexer {
 
     /// Parse a boolean true or false
     fn parse_boolean(&mut self) -> Option<Token> {
-        if self.peek_is(0, "#") && self.peek_is(1, "tfTF") {
+        if self.peek_is(0, "#") && self.peek_is(1, "tfTF") && self.is_delimiter(self.peek(2)) {
             self.advance();
-            self.advance();
+            let ch = self.advance();
             return Some(Token::Boolean {
-                value: self.peek_is(0, "tT"),
+                value: ch == Some('t') || ch == Some('T'),
             });
+        }
+
+        if self.consume_ascii_insensitive("#true") {
+            return Some(Token::Boolean { value: true });
+        } else if self.consume_ascii_insensitive("#false") {
+            return Some(Token::Boolean { value: false });
         }
 
         None
@@ -221,29 +227,38 @@ impl Lexer {
         self.advance();
         self.advance();
 
-        let mut content = String::new();
-        while let Some(char) = self.peek(0) {
-            if self.is_delimiter(Some(char)) {
-                break;
-            } else {
-                content.push(char);
-                self.advance();
+        let mut content = self.consume_until_delimiter();
+        if content.len() == 0 {
+            if let Some(next) = self.advance() {
+                content.push(next);
             }
         }
+        let content = content;
 
         let lower = content.to_lowercase();
-        if lower == "space" {
-            content.clear();
-            content.push(' ')
-        }
-        if lower == "newline" {
-            content.clear();
-            content.push('\n')
+        let named = match lower.as_str() {
+            "alarm" => Some('\u{7}'),
+            "backspace" => Some('\u{8}'),
+            "delete" => Some('\u{7f}'),
+            "escape" => Some('\u{1b}'),
+            "newline" => Some('\n'),
+            "null" => Some('\0'),
+            "return" => Some('\r'),
+            "space" => Some(' '),
+            "tab" => Some('\t'),
+            _ => None,
+        };
+
+        if let Some(ch) = named {
+            return Some(Token::Character {
+                value: ch,
+                error: None,
+            });
         }
 
         Some(Token::Character {
             value: content.chars().next().unwrap_or_default(),
-            error: if content.len() != 1 {
+            error: if content.chars().count() != 1 {
                 Some(LexerError::BadCharacterLiteral { chars: content })
             } else {
                 None
@@ -425,6 +440,22 @@ impl Lexer {
             }
             i += 1;
             result.push(ch);
+        }
+
+        result
+    }
+
+    /// Consume characters until a delimiter is reached and return as a single
+    /// string
+    fn consume_until_delimiter(&mut self) -> String {
+        let mut result = String::new();
+
+        while let Some(ch) = self.peek(0) {
+            if self.is_delimiter(Some(ch)) {
+                break;
+            }
+            result.push(ch);
+            self.advance();
         }
 
         result
