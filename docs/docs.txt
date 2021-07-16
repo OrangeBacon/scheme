@@ -70,3 +70,23 @@ be reported regardless of this option.  Default = false.
 This warning is triggered if a non-ascii unicode character is present in an
 identifier.  Checks occur after checking if it is possible for the character to
 be in an identifier.  Default = Allow.
+
+- Characters
+Character literals starting with `#\` can either have a single character or the
+name of a character in them.  Delimiters such as spaces and parenthesises can be
+in character literals, so `#\ ` is a single space character.  Several attempts
+are made at interpreting any name given, the first one that succeeds will be
+used.
+1. If the name is `alarm`, `backspace`, `delete`, `escape`, `newline`, `null`,
+   `return`, `space` or `tab`, (case insensitive) then the relevant character is
+   inserted.
+2. If the name begins with `x` (case insensitive) then the remainder of the name
+   is parsed as a hexadecimal number which is interpreted as a unicode code
+   point.  If parsing fails or the number is out of range, then the next option
+   is attempted
+3. The name has `-` and `_` replaced with spaces and is then used to lookup
+   unicode character names, for example `#\latin-small-letter-n` == `#\n`
+4. If the name starts with a lower case letter, then "small" otherwise "capital"
+   is chosen in `latin {size} letter {name}`, for example `#\iota` ==
+   `#\latin-small-letter-iota` and `#\Iota` == `#\latin-capital-letter-iota`
+Otherwise, the character literal is invalid.

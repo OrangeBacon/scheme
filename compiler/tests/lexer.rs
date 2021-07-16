@@ -203,7 +203,10 @@ fn booleans() {
 #[test]
 fn characters() {
     let config = Configuration::new();
-    let result = driver(config, r#"#\alarm #\a #\backspace #\ backspace"#);
+    let result = driver(
+        config,
+        r#"#\alarm #\a #\backspace #\ backspace #\iota #\Iota #\x03BB"#,
+    );
 
     assert_eq!(
         result,
@@ -212,6 +215,9 @@ fn characters() {
 1:13-24 | character '\u{8}'
 1:25-28 | character ' '
 1:28-37 | Identifier "backspace"
+1:38-44 | character 'ɩ'
+1:45-51 | character 'Ɩ'
+1:52-59 | character 'λ'
 "#
     );
 }

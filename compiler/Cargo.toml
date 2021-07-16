@@ -17,6 +17,7 @@ num-bigint = "0.4"
 num-traits = "0.2"
 num-derive = "0.3"
 unicode-normalization = "0.1.19"
+unicode_names2 = "0.4.0"
 
 linkme = { version = "0.2", optional = true }
 

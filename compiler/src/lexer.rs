@@ -256,6 +256,45 @@ impl Lexer {
             });
         }
 
+        let next = content.chars().next();
+        if next == Some('x') || next == Some('X') {
+            // hexadecimal unicode character codes
+            if let Ok(ch) = u32::from_str_radix(&content[1..], 16) {
+                if let Some(ch) = char::from_u32(ch) {
+                    return Some(Token::Character {
+                        value: ch,
+                        error: None,
+                    });
+                };
+            };
+        }
+
+        // unicode character names
+        let content = content.split(&['-', '_'][..]).collect::<Vec<_>>();
+        let content = content.join(" ");
+
+        if let Some(ch) = unicode_names2::character(&content) {
+            return Some(Token::Character {
+                value: ch,
+                error: None,
+            });
+        }
+
+        let case = if content[0..1] == content[0..1].to_lowercase() {
+            "small"
+        } else {
+            "capital"
+        };
+
+        let content = format!("latin {} letter {}", case, content);
+
+        if let Some(ch) = unicode_names2::character(&content) {
+            return Some(Token::Character {
+                value: ch,
+                error: None,
+            });
+        }
+
         Some(Token::Character {
             value: content.chars().next().unwrap_or_default(),
             error: if content.chars().count() != 1 {
