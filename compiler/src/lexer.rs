@@ -228,12 +228,19 @@ impl Lexer {
         self.advance();
 
         let mut content = self.consume_until_delimiter();
-        if content.len() == 0 {
+        if content.chars().count() == 0 {
             if let Some(next) = self.advance() {
                 content.push(next);
             }
         }
         let content = content;
+
+        if content.chars().count() == 1 {
+            return Some(Token::Character {
+                value: content.chars().next().unwrap_or_default(),
+                error: None,
+            });
+        }
 
         let lower = content.to_lowercase();
         let named = match lower.as_str() {
@@ -286,22 +293,20 @@ impl Lexer {
             "capital"
         };
 
-        let content = format!("latin {} letter {}", case, content);
+        {
+            let content = format!("latin {} letter {}", case, content);
 
-        if let Some(ch) = unicode_names2::character(&content) {
-            return Some(Token::Character {
-                value: ch,
-                error: None,
-            });
+            if let Some(ch) = unicode_names2::character(&content) {
+                return Some(Token::Character {
+                    value: ch,
+                    error: None,
+                });
+            }
         }
 
         Some(Token::Character {
             value: content.chars().next().unwrap_or_default(),
-            error: if content.chars().count() != 1 {
-                Some(LexerError::BadCharacterLiteral { chars: content })
-            } else {
-                None
-            },
+            error: Some(LexerError::BadCharacterLiteral { chars: content }),
         })
     }
 
