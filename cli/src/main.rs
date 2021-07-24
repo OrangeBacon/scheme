@@ -124,7 +124,7 @@ fn run() -> Result<()> {
     run::run(sources, config)?;
 
     let mut bytecode = BytecodeChunk::new("Test Chunk");
-    let num = bytecode.single(1.2);
+    let num = bytecode.double(1.2);
     let num = bytecode.number(num);
     bytecode.location(11);
     bytecode.write(OpCode::LoadConstant);

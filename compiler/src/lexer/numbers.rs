@@ -1,13 +1,59 @@
 use crate::{
-    lexer::LexerError,
-    numerics::{ExponentKind, NumberString, NumericLiteralString, Radix},
+    config::{ConfigurationCategory, Flag, WarningLevel},
+    environment::Environment,
+    lexer::{LexerError, WithLocation},
+    numerics::{NumberString, NumericLiteralString, Radix},
 };
 
 use super::{Lexer, Token};
 
 impl Lexer {
+    pub fn parse_number(&mut self, env: &mut Environment) -> Option<Token> {
+        let number = self.parse_number_inner(env)?;
+
+        let number = match number {
+            Token::Number { value, error: None } => value,
+            _ => return Some(number),
+        };
+
+        match (&number.real, &number.imaginary) {
+            (Some(num), _) | (_, Some(num)) => {
+                let contains = match num {
+                    NumberString::Decimal(number, Some(exponent)) => {
+                        number.contains('#') || exponent.contains('#')
+                    }
+                    NumberString::Decimal(number, None) => number.contains('#'),
+                    NumberString::Integer(num) => num.contains('#'),
+                    NumberString::Fraction(numerator, denominator) => {
+                        numerator.contains('#') || denominator.contains('#')
+                    }
+                };
+
+                if contains {
+                    env.emit_warning(
+                        W_NUMBER_HASH,
+                        LexerError::NumberHash {
+                            loc: WithLocation {
+                                file: self.file_idx(),
+                                length: self.current - self.start,
+                                start_offset: self.start,
+                                content: (),
+                            },
+                        },
+                    )
+                }
+            }
+            (_, _) => (),
+        }
+
+        return Some(Token::Number {
+            value: number,
+            error: None,
+        });
+    }
+
     /// Parse any kind of generic numeric literal
-    pub fn parse_number(&mut self) -> Option<Token> {
+    fn parse_number_inner(&mut self, env: &mut Environment) -> Option<Token> {
         let mut number = NumericLiteralString {
             radix: None,
             exact: None,
@@ -102,7 +148,7 @@ impl Lexer {
             });
         }
 
-        let first = match self.parse_real(&number, &mut started) {
+        let first = match self.parse_real(&number, &mut started, env) {
             Ok(num) => num,
             Err(err) => {
                 if started {
@@ -128,7 +174,7 @@ impl Lexer {
                 number.polar_form = true;
                 self.advance();
                 number.real = Some(first);
-                number.imaginary = match self.parse_real(&number, &mut started) {
+                number.imaginary = match self.parse_real(&number, &mut started, env) {
                     Ok(num) => Some(num),
                     Err(err) => return error(number, err),
                 };
@@ -147,7 +193,7 @@ impl Lexer {
                 } else {
                     // <real R> [+-] <ureal R> i
                     number.real = Some(first);
-                    let err = match self.parse_real(&number, &mut started) {
+                    let err = match self.parse_real(&number, &mut started, env) {
                         Ok(real) => {
                             number.imaginary = Some(real);
                             None
@@ -190,6 +236,7 @@ impl Lexer {
         &mut self,
         number: &NumericLiteralString,
         started: &mut bool,
+        env: &mut Environment,
     ) -> Result<NumberString, LexerError> {
         let mut num = String::new();
         let mut next = match self.peek(0) {
@@ -217,7 +264,7 @@ impl Lexer {
                 self.advance();
             }
 
-            let exponent = self.decimal_suffix()?;
+            let exponent = self.decimal_suffix(env)?;
 
             if number.radix != Some(Radix::Decimal) && number.radix != None {
                 return Err(LexerError::DecimalRadix);
@@ -258,7 +305,7 @@ impl Lexer {
                 // number with exponential suffix
                 // does not consume the peeked character as that is
                 // performed inside the suffix parsing
-                let exponent = self.decimal_suffix()?;
+                let exponent = self.decimal_suffix(env)?;
 
                 if number.radix != Some(Radix::Decimal) && number.radix != None {
                     return Err(LexerError::DecimalRadix);
@@ -285,7 +332,7 @@ impl Lexer {
                     self.advance();
                 }
 
-                let exponent = self.decimal_suffix()?;
+                let exponent = self.decimal_suffix(env)?;
 
                 if number.radix != Some(Radix::Decimal) && number.radix != None {
                     return Err(LexerError::DecimalRadix);
@@ -311,7 +358,7 @@ impl Lexer {
                     self.advance();
                 }
 
-                let exponent = self.decimal_suffix()?;
+                let exponent = self.decimal_suffix(env)?;
 
                 if number.radix != Some(Radix::Decimal) && number.radix != None {
                     return Err(LexerError::DecimalRadix);
@@ -324,7 +371,7 @@ impl Lexer {
     }
 
     /// Parse a single decimal prefix
-    fn decimal_suffix(&mut self) -> Result<Option<ExponentKind>, LexerError> {
+    fn decimal_suffix(&mut self, env: &mut Environment) -> Result<Option<String>, LexerError> {
         let kind = match self.peek(0) {
             Some(peek) => {
                 if !"esfdl".contains(peek) {
@@ -334,6 +381,20 @@ impl Lexer {
             }
             None => return Ok(None),
         };
+
+        if kind != 'e' {
+            env.emit_warning(
+                W_NUMBER_EXPONENTS,
+                LexerError::NumberExponent {
+                    loc: WithLocation {
+                        file: self.file_idx(),
+                        length: 1,
+                        start_offset: self.current,
+                        content: kind,
+                    },
+                },
+            );
+        }
 
         let mut num = String::new();
         self.advance();
@@ -359,14 +420,7 @@ impl Lexer {
             }
         }
 
-        Ok(Some(match kind {
-            'e' => ExponentKind::Exponential(num.into()),
-            's' => ExponentKind::Short(num.into()),
-            'f' => ExponentKind::Float(num.into()),
-            'd' => ExponentKind::Double(num.into()),
-            'l' => ExponentKind::Long(num.into()),
-            _ => unreachable!(),
-        }))
+        Ok(Some(num))
     }
 
     fn unsigned_integer(
@@ -405,3 +459,20 @@ impl Lexer {
         }
     }
 }
+
+#[cfg_attr(features = "linkme", distributed_slice(FLAGS))]
+pub static W_NUMBER_EXPONENTS: Flag = Flag::new(ConfigurationCategory::Warning, "number_exponents")
+    .warning(WarningLevel::Warn)
+    .help(
+        "Number literals using the `s`, `f`, `d`, or `l` exponent markers are deprecated. \
+They are only included for r5rs compatibility, change to using `e` instead.",
+    );
+
+#[cfg_attr(predicate, attr)]
+pub static W_NUMBER_HASH: Flag = Flag::new(ConfigurationCategory::Warning, "number_hash")
+    .warning(WarningLevel::Warn)
+    .help(
+        "Number literals containing `#` characters are deprecated. \
+They are only included for r5rs compatibility, change to using `0` and marking as inexact \
+using the `#i` prefix instead",
+    );

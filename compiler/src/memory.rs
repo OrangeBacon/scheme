@@ -72,11 +72,6 @@ impl Heap {
         Number(NumberContent::Integer(val))
     }
 
-    /// Create an f32 number
-    pub fn single(&mut self, val: f32) -> Number {
-        Number(NumberContent::Single(val))
-    }
-
     /// Create an f64 number
     pub fn double(&mut self, val: f64) -> Number {
         Number(NumberContent::Double(val))

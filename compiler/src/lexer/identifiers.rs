@@ -4,7 +4,7 @@ use lasso::Spur;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::{
-    config::{ConfigurationCategory, Flag},
+    config::{ConfigurationCategory, Flag, WarningLevel},
     environment::Environment,
     lexer::WithLocation,
     unicode,
@@ -276,7 +276,8 @@ fn unicode_range(data: &[Range<char>], ch: char) -> bool {
     .is_ok()
 }
 
+#[cfg_attr(features = "linkme", distributed_slice(FLAGS))]
 pub static W_UNICODE_IDENTIFIERS: Flag =
     Flag::new(ConfigurationCategory::Warning, "unicode_identifiers")
-        .warning(crate::config::WarningLevel::Allow)
+        .warning(WarningLevel::Allow)
         .help("Should identifiers containing non ascii unicode characters be allowed");

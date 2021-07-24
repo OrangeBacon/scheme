@@ -68,6 +68,12 @@ pub enum LexerError {
 
     #[error("Could not find semi-colon after unicode escape sequence starting at {loc:?}")]
     UnicodeEscapeSemicolon { loc: WithLocation<()> },
+
+    #[error("Use of deprecated decimal exponent marker")]
+    NumberExponent { loc: WithLocation<char> },
+
+    #[error("Use of `#` in number literal")]
+    NumberHash { loc: WithLocation<()> },
 }
 
 /// Individual units of source code
@@ -176,7 +182,7 @@ impl Lexer {
         if let Some(tok) = self.parse_boolean() {
             return tok;
         }
-        if let Some(tok) = self.parse_number() {
+        if let Some(tok) = self.parse_number(env) {
             return tok;
         }
         if let Some(tok) = self.parse_character() {

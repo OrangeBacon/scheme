@@ -108,11 +108,6 @@ impl BytecodeChunk {
         self.constant_heap.integer(val)
     }
 
-    /// Create an f32 number constant
-    pub fn single(&mut self, val: f32) -> Number {
-        self.constant_heap.single(val)
-    }
-
     /// Create an f64 number constant
     pub fn double(&mut self, val: f64) -> Number {
         self.constant_heap.double(val)

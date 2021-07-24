@@ -55,7 +55,7 @@ pub struct NumericLiteralString {
 /// A single numeric component stored as strings
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum NumberString {
-    Decimal(Cow<'static, str>, Option<ExponentKind>),
+    Decimal(Cow<'static, str>, Option<String>),
     Integer(Cow<'static, str>),
     Fraction(Cow<'static, str>, Cow<'static, str>),
 }
@@ -69,16 +69,6 @@ pub enum Radix {
     Hexadecimal,
 }
 
-/// The kind of exponent that was specified in a decimal number
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ExponentKind {
-    Exponential(Cow<'static, str>),
-    Short(Cow<'static, str>),
-    Float(Cow<'static, str>),
-    Double(Cow<'static, str>),
-    Long(Cow<'static, str>),
-}
-
 /// Representation of a number
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -88,7 +78,6 @@ pub struct Number(pub(crate) NumberContent);
 pub(crate) enum NumberContent {
     Integer(i64),
     BigInteger(usize),
-    Single(f32),
     Double(f64),
     Rational(usize, usize),
 }
@@ -178,17 +167,9 @@ impl NumberString {
                 let val = val.replace('#', "0");
 
                 match exp {
-                    Some(
-                        ExponentKind::Exponential(exp)
-                        | ExponentKind::Double(exp)
-                        | ExponentKind::Long(exp),
-                    ) => {
+                    Some(exp) => {
                         let num = format!("{}e{}", val, exp);
                         Ok(heap.double(num.parse()?))
-                    }
-                    Some(ExponentKind::Float(exp) | ExponentKind::Short(exp)) => {
-                        let num = format!("{}e{}", val, exp);
-                        Ok(heap.single(num.parse()?))
                     }
                     None => Ok(heap.double(val.parse()?)),
                 }
@@ -268,7 +249,6 @@ impl Number {
     fn to_f64(&self, heap: &mut Heap) -> Option<f64> {
         Some(match self {
             Number(NumberContent::Integer(val)) => *val as _,
-            Number(NumberContent::Single(val)) => *val as _,
             Number(NumberContent::Double(val)) => *val,
 
             Number(NumberContent::BigInteger(idx)) => heap.get_bigint(*idx).to_f64()?,
@@ -281,7 +261,6 @@ impl Number {
     pub fn print(&self, f: &mut fmt::Formatter, heap: &Heap) -> fmt::Result {
         match self.0 {
             NumberContent::Integer(val) => write!(f, "{}", val),
-            NumberContent::Single(val) => write!(f, "{}", val),
             NumberContent::Double(val) => write!(f, "{}", val),
 
             NumberContent::BigInteger(idx) => {
@@ -296,7 +275,6 @@ impl Number {
     fn is_zero(&self, heap: &Heap) -> bool {
         match self.0 {
             NumberContent::Integer(val) => val == 0,
-            NumberContent::Single(val) => val == 0.0,
             NumberContent::Double(val) => val == 0.0,
             NumberContent::BigInteger(idx) => *heap.get_bigint(idx) == BigInt::from(0),
 
@@ -308,7 +286,6 @@ impl Number {
     fn is_positive(&self, heap: &Heap) -> bool {
         match self.0 {
             NumberContent::Integer(val) => val > 0,
-            NumberContent::Single(val) => val > 0.0,
             NumberContent::Double(val) => val > 0.0,
             NumberContent::BigInteger(idx) => *heap.get_bigint(idx) > BigInt::from(0),
 

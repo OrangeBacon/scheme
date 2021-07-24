@@ -221,3 +221,41 @@ fn characters() {
 "#
     );
 }
+
+#[test]
+fn numbers() {
+    let config = Configuration::new();
+    let result = driver(
+        config,
+        "1 1.1 #x1ae7 #i5 #e5 #o137 #o9 #i#b010110 #b5
+                5e7 #e5e7 #i5e7 #o5e7 #x5e7 10#.# 5f3 3.1@7.8
+                3+4i -9-8.2i #x3e-4fFi",
+    );
+
+    assert_eq!(
+        result,
+        r#"1:1-2 | NumericLiteralString { radix: None, exact: None, polar_form: false, real: Some(Integer("1")), imaginary: None }
+1:3-6 | NumericLiteralString { radix: None, exact: None, polar_form: false, real: Some(Decimal("1.1", None)), imaginary: None }
+1:7-13 | NumericLiteralString { radix: Some(Hexadecimal), exact: None, polar_form: false, real: Some(Integer("ae7")), imaginary: None }
+1:14-17 | Unexpected characters: ""
+1:18-21 | Unexpected characters: ""
+1:22-27 | NumericLiteralString { radix: Some(Octal), exact: None, polar_form: false, real: Some(Integer("37")), imaginary: None }
+1:28-31 | Unexpected characters: ""
+1:32-42 | NumericLiteralString { radix: Some(Binary), exact: Some(false), polar_form: false, real: Some(Integer("010110")), imaginary: None }
+1:43-46 | Unexpected characters: ""
+2:17-20 | NumericLiteralString { radix: None, exact: None, polar_form: false, real: Some(Decimal("5", Some("7"))), imaginary: None }
+2:21-26 | Unexpected characters: "e7"
+2:27-32 | Unexpected characters: "e7"
+2:33-38 | Unexpected characters: "e7"
+2:39-44 | NumericLiteralString { radix: Some(Hexadecimal), exact: None, polar_form: false, real: Some(Integer("e7")), imaginary: None }
+2:45-50 | NumericLiteralString { radix: None, exact: None, polar_form: false, real: Some(Decimal("10#.#", None)), imaginary: None }
+2:51-54 | NumericLiteralString { radix: None, exact: None, polar_form: false, real: Some(Decimal("5", Some("3"))), imaginary: None }
+2:55-62 | NumericLiteralString { radix: None, exact: None, polar_form: true, real: Some(Decimal("3.1", None)), imaginary: Some(Decimal("7.8", None)) }
+3:17-21 | NumericLiteralString { radix: None, exact: None, polar_form: false, real: Some(Integer("3")), imaginary: Some(Integer("+4")) } with error `Non-terminated numeric literal`
+3:22-29 | NumericLiteralString { radix: None, exact: None, polar_form: false, real: None, imaginary: Some(Decimal("-98.2", None)) }
+3:30-39 | NumericLiteralString { radix: Some(Hexadecimal), exact: None, polar_form: false, real: Some(Integer("e")), imaginary: Some(Integer("-4F")) }
+warn: Use of `#` in number literal
+warn: Use of deprecated decimal exponent marker
+"#
+    );
+}
